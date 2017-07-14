@@ -2,6 +2,7 @@ package org.broadinstitute.hellbender.utils.tsv;
 
 import org.broadinstitute.hellbender.utils.Utils;
 
+import java.util.NoSuchElementException;
 import java.util.function.Function;
 
 /**
@@ -787,5 +788,22 @@ public final class DataLine {
      */
     public long getLineNumber() {
         return lineNumber;
+    }
+
+    /**
+     * Returns the next string
+     * @return never {@code null}.
+     */
+    public String nextString() {
+        if (nextIndex >= values.length) {
+            throw new NoSuchElementException("trying to go beyond the end of the data-line");
+        } else {
+            final String value = values[nextIndex];
+            if (value == null) {
+                throw new IllegalStateException("trying to read an undefined value");
+            }
+            nextIndex++;
+            return value;
+        }
     }
 }

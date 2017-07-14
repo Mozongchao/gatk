@@ -173,6 +173,7 @@ public final class AlignedAssemblyOrExcuse {
         intervalDispositions.forEach(alignedAssemblyOrExcuse ->
                 resultsMap.put(alignedAssemblyOrExcuse.getAssemblyId(), alignedAssemblyOrExcuse));
 
+
         try ( final OutputStreamWriter writer =
                       new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(intervalFile))) ) {
             final List<SAMSequenceRecord> contigs = header.getSequenceDictionary().getSequences();

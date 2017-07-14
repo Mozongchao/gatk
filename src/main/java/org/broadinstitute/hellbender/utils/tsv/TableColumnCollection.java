@@ -196,6 +196,16 @@ public final class TableColumnCollection {
         return containsAll(names) && columnCount() == names.length;
     }
 
+    public boolean matchesExactly(final TableColumnCollection otherColumns) {
+        Utils.nonNull(otherColumns);
+        return matchesExactly(otherColumns.names);
+    }
+
+    public boolean matchesExactly(final List<String> columns) {
+        Utils.nonNull(columns);
+        return matchesExactly(columns.toArray(new String[columns.size()]));
+    }
+
     /**
      * Checks a column names matches given one.
      * <p>
