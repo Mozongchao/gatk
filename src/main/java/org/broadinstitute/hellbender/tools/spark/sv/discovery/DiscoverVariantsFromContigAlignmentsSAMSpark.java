@@ -95,7 +95,6 @@ public final class DiscoverVariantsFromContigAlignmentsSAMSpark extends GATKSpar
                 = new SAMFormattedContigAlignmentParser(getReads(), getHeaderForReads(), true, localLogger)
                 .getAlignedContigs();
 
-        if ()
         discoverVariantsAndWriteVCF(parsedContigAlignments, discoverStageArgs.fastaReference,
                 ctx.broadcast(getReference()), getAuthenticatedGCSOptions(), vcfOutputFileName, localLogger);
     }

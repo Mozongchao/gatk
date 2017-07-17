@@ -18,6 +18,10 @@ public class VariantContextVariantAdapter implements GATKVariant, Serializable {
         this.variantContext = vc;
     }
 
+    public VariantContext getVariantContext() {
+        return variantContext;
+    }
+
     public static GATKVariant sparkVariantAdapter(VariantContext vc) {
         return new MinimalVariant(new SimpleInterval(vc.getContig(),vc.getStart(),vc.getEnd()), vc.isSNP(), vc.isIndel());
     }

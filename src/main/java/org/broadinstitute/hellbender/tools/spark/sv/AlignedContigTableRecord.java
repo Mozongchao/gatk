@@ -26,6 +26,8 @@ import java.util.stream.Stream;
  */
 class AlignedContigCoverageTable {
 
+
+
     static final String CONTIG_NAME_COLUMN_NAME = "CONTIG_NAME";
 
     static final String INTERVAL_COLUMN_NAME = "INTERVAL";
@@ -45,7 +47,7 @@ class AlignedContigCoverageTable {
      */
     static class Record implements Serializable, Locatable {
 
-        private static long serialVersionID = 1L;
+        private static final long serialVersionUID = 1L;
 
         public final String contigName;
         public final SimpleInterval interval;
