@@ -14,6 +14,7 @@ import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.sql.execution.CollapseCodegenStages$;
@@ -76,7 +77,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
     public static final String PADDING_SIZE_FULL_NAME = "paddingSize";
 
     public static final int DEFAULT_SHARD_SIZE = 10_000;
-    public static final int DEFAULT_PADDING_SIZE = 300;
+    public static final int DEFAULT_PADDING_SIZE = 50;
 
 
     @Argument(doc = "shard size",
@@ -150,33 +151,83 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         final IntervalsSkipList<SimpleInterval> shardIntervals = new IntervalsSkipList<>(shardBoundaries.stream()
                 .map(ShardBoundary::getPaddedInterval)
                 .collect(Collectors.toList()));
+        final Broadcast<SAMSequenceDictionary> dictionaryBroadcast = ctx.broadcast(sequenceDictionary);
 
         final Broadcast<IntervalsSkipList<SimpleInterval>> shardIntervalsBroadcast = ctx.broadcast(shardIntervals);
 
-        final JavaPairRDD<SimpleInterval, List<GATKRead>> contigsInShards =
-            groupInShards(contigs, shardIntervalsBroadcast);
-        final JavaPairRDD<SimpleInterval, List<VariantContext>> variantsInShards =
-            groupInShards(variants,
-                    (Function<VariantContext, VariantContextVariantAdapter> & Serializable) VariantContextVariantAdapter::new,
-                    (Function<VariantContextVariantAdapter, VariantContext> & Serializable) VariantContextVariantAdapter::getVariantContext,
-                    shardIntervalsBroadcast);
+        final JavaPairRDD<SimpleInterval, List<Tuple2<SimpleInterval,GATKRead>>> contigsInShards =
+            groupInShards(contigs, ComposeStructuralVariantHaplotypesSpark::contigIntervals, shardIntervalsBroadcast);
+        final int paddingSize = this.paddingSize;
 
-        final JavaPairRDD<SimpleInterval, Tuple2<List<GATKRead>, List<VariantContext>>> contigAndVariantsInShards =
+        final JavaPairRDD<SimpleInterval, List<Tuple2<SimpleInterval, VariantContext>>> variantsInShards =
+            groupInShards(variants, (v) -> variantsBreakPointIntervals(v, paddingSize, dictionaryBroadcast.getValue()), shardIntervalsBroadcast);
+
+        final JavaPairRDD<SimpleInterval, Tuple2<List<Tuple2<SimpleInterval, GATKRead>>, List<Tuple2<SimpleInterval, VariantContext>>>> contigAndVariantsInShards =
                 contigsInShards.join(variantsInShards);
 
-        final JavaPairRDD<VariantContext, List<GATKRead>> contigsPerVariant =
+
+        final JavaPairRDD<VariantContext, List<GATKRead>> contigsPerVariantInterval =
                 contigAndVariantsInShards.flatMapToPair(t -> {
-                    final List<VariantContext> vars = t._2()._2();
-                    final List<GATKRead> ctgs = t._2()._1();
+                    final List<Tuple2<SimpleInterval, VariantContext>> vars = t._2()._2();
+                    final List<Tuple2<SimpleInterval, GATKRead>> ctgs = t._2()._1();
                     return vars.stream()
                             .map(v -> {
                                 final List<GATKRead> cs = ctgs.stream()
-                                        .filter(c -> c.getStart() <= v.getEnd() && c.getEnd() >= v.getStart())
-                                .collect(Collectors.toList());
-                                return new Tuple2<>(v, cs);})
+                                        .filter(ctg -> v._1().overlaps(ctg._1()))
+                                        .map(Tuple2::_2)
+                                        .collect(Collectors.toList());
+
+                                return new Tuple2<>(v._2(), cs);})
                             .collect(Collectors.toList()).iterator();
                 });
+
+        final Function<VariantContext, String> variantId = (Function<VariantContext, String> & Serializable) ComposeStructuralVariantHaplotypesSpark::variantId;
+        final Function2<List<GATKRead>, List<GATKRead>, List<GATKRead>> readListMerger = (a, b) -> Stream.concat(a.stream(), b.stream()).collect(Collectors.toList());
+
+        // Merge contig lists on the same variant-context coming from different intervals
+        // into one.
+        final JavaPairRDD<VariantContext, List<GATKRead>> contigsPerVariant = contigsPerVariantInterval
+                .mapToPair(t -> new Tuple2<>(variantId.apply(t._1()), t))
+                .reduceByKey((a, b) -> new Tuple2<>(a._1(), readListMerger.call(a._2(), b._2())))
+                .mapToPair(Tuple2::_2);
         return contigsPerVariant;
+    }
+
+    private static String variantId(final VariantContext variant) {
+        if (variant.getID() != null && !variant.getID().isEmpty()) {
+            return variant.getID();
+        } else {
+            final int length = Math.abs(variantLength(variant));
+            return "var_" + variant.getAlternateAllele(0).getDisplayString() + "_" + length;
+        }
+    }
+
+    private static List<SimpleInterval> contigIntervals(final GATKRead contig) {
+        if (contig.isUnmapped()) {
+            return Collections.emptyList();
+        } else {
+            return Collections.singletonList(new SimpleInterval(contig.getContig(), contig.getStart(), contig.getEnd()));
+        }
+    }
+
+    private static List<SimpleInterval> variantsBreakPointIntervals(final VariantContext variant, final int padding, final SAMSequenceDictionary dictionary) {
+        final String contigName = variant.getContig();
+        final int contigLength = dictionary.getSequence(contigName).getSequenceLength();
+        if (variant.getAlternateAllele(0).getDisplayString().equals("<INS>")) {
+            return Collections.singletonList(new SimpleInterval(contigName, Math.max(1, variant.getStart() - padding), Math.min(variant.getStart() + 1 + padding, contigLength)));
+        } else { // must be <DEL>
+            final int length = - variantLength(variant);
+            return Arrays.asList(new SimpleInterval(contigName, Math.max(1, variant.getStart() - padding) , Math.min(contigLength, variant.getStart() + padding)),
+                                 new SimpleInterval(contigName, Math.max(1, variant.getStart() + length - padding), Math.min(contigLength, variant.getStart() + length + padding)));
+        }
+    }
+
+    private static int variantLength(VariantContext variant) {
+        final int length = variant.getAttributeAsInt("SVLEN", 0);
+        if (length == 0) {
+            throw new IllegalStateException("missing SVLEN annotation in " + variant.getContig() + ":" + variant.getStart());
+        }
+        return length;
     }
 
     private static SimpleInterval locatableToSimpleInterval(final Locatable loc) {
@@ -189,27 +240,18 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                 referenceName, Collections.singletonList(interval));
     }
 
-    private <T, U extends Locatable> JavaPairRDD<SimpleInterval, List<T>> groupInShards(final JavaRDD<T> elements,
-                                                                                        final Function<T, U> locatableOf,
-                                                                                        final Function<U, T> elementOf,
-                                                                                        final Broadcast<IntervalsSkipList<SimpleInterval>> shards) {
-        return groupInShards(elements.map(e -> locatableOf.apply(e)), shards)
-                .mapValues(l -> l.stream().map(elementOf).collect(Collectors.toList()));
-    }
+    private <T> JavaPairRDD<SimpleInterval, List<Tuple2<SimpleInterval, T>>> groupInShards(final JavaRDD<T> elements, final org.apache.spark.api.java.function.Function<T, List<SimpleInterval>> intervalsOf,
+                                                                  final Broadcast<IntervalsSkipList<SimpleInterval>> shards) {
+        final PairFlatMapFunction<T, SimpleInterval, Tuple2<SimpleInterval, T>> flatMapIntervals =
+                t -> intervalsOf.call(t).stream().map(i -> new Tuple2<>(i, new Tuple2<>(i,t))).iterator();
 
-    private <T extends Locatable> JavaPairRDD<SimpleInterval, List<T>> groupInShards(final JavaRDD<T> elements, final Broadcast<IntervalsSkipList<SimpleInterval>> shards) {
         return elements
-                .filter(c -> c.getContig() != null && c.getStart() > 0 && c.getEnd() >= c.getStart())
-                .mapToPair(c -> new Tuple2<>(c, new SimpleInterval(c.getContig(), c.getStart(), c.getEnd())))
-                .mapToPair(t -> new Tuple2<>(t._1(), shards.getValue().getOverlapping(t._2())))
-                .flatMapValues(l -> l)
-                .mapToPair(t -> new Tuple2<>(t._2(), t._1()))
-                .aggregateByKey(new ArrayList<T>(10),
+                .flatMapToPair(flatMapIntervals)
+                .flatMapToPair(t -> shards.getValue().getOverlapping(t._1()).stream().map(i -> new Tuple2<>(i, t._2())).iterator())
+                .aggregateByKey(new ArrayList<Tuple2<SimpleInterval, T>>(10),
                         (l1, c) -> { l1.add(c); return l1;},
                         (l1, l2) -> {l1.addAll(l2); return l1;});
-
     }
-
 
     protected void processVariants(final JavaPairRDD<VariantContext, List<GATKRead>> variantsAndOverlappingContigs, final ReadsSparkSource s) {
 
@@ -312,8 +354,8 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
 
         final SATagBuilder resultSABuilder = new SATagBuilder(result);
 
-        resultSABuilder.addTag(saBuilder1);
-        resultSABuilder.addTag(saBuilder2);
+        resultSABuilder.addAllTags(saBuilder1);
+        resultSABuilder.addAllTags(saBuilder2);
         resultSABuilder.setSATag();
         return result;
     }

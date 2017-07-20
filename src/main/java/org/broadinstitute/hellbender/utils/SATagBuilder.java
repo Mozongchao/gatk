@@ -92,14 +92,33 @@ public class SATagBuilder implements Serializable {
      * advanced to the front of the list, otherwise it will be placed at the back of the SA string.
      *
      * @param otherTag a SATagBuilder encapsulating the SARead to add
-     * @return
+     * @return always this builder.
+     * @throws IllegalArgumentException if {@code otherTag} is {@code null}.
      */
-    public SATagBuilder addTag(SATagBuilder otherTag) {
+    public SATagBuilder addTag(final SATagBuilder otherTag) {
+        Utils.nonNull(otherTag);
+        final SARead thisRead = otherTag.getThisRead();
         if (otherTag.isPrimary()) {
             supplementaryReads.add(0, otherTag.getThisRead());
-        } else {
+            if (supplementaryReads.lastIndexOf(thisRead) != 0) {
+                supplementaryReads.remove(supplementaryReads.lastIndexOf(thisRead));
+            }
+        } else if (!supplementaryReads.contains(thisRead)){
             supplementaryReads.add(otherTag.getThisRead());
         }
+        return this;
+    }
+
+    /**
+     * Adds the encapsulated read an any other supplementary read from the input tag builder to this tag builder.
+     * @param otherTag the input tag.
+     * @return a reference to this builder.
+     * @throws IllegalArgumentException if {@code otherTag} is {@code null}.
+     */
+    public SATagBuilder addAllTags(SATagBuilder otherTag) {
+        Utils.nonNull(otherTag);
+        supplementaryReads.addAll(otherTag.supplementaryReads.stream().filter(r -> !supplementaryReads.contains(r)).collect(Collectors.toList()));
+        addTag(otherTag);
         return this;
     }
 
@@ -253,6 +272,7 @@ public class SATagBuilder implements Serializable {
             this.NM = (read.hasAttribute(SAMTag.NM.name())? read.getAttributeAsString(SAMTag.NM.name()):"*");
         }
 
+        @Override
         public int hashCode() {
             return contig.hashCode() + pos.hashCode() + strand.hashCode() + cigar.hashCode() + NM.hashCode();
         }
