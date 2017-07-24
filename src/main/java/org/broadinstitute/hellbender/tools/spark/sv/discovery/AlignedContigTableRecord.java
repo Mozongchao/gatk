@@ -1,4 +1,4 @@
-package org.broadinstitute.hellbender.tools.spark.sv;
+package org.broadinstitute.hellbender.tools.spark.sv.discovery;
 
 import com.sun.tools.internal.xjc.reader.xmlschema.bindinfo.BIConversion;
 import htsjdk.samtools.util.Locatable;
@@ -25,7 +25,6 @@ import java.util.stream.Stream;
  * Aligned Contig Table utility class.
  */
 class AlignedContigCoverageTable {
-
 
 
     static final String CONTIG_NAME_COLUMN_NAME = "CONTIG_NAME";

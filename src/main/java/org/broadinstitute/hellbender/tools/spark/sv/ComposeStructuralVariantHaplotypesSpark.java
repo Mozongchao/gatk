@@ -9,6 +9,7 @@ import htsjdk.samtools.util.Locatable;
 import htsjdk.samtools.util.SequenceUtil;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.VariantContext;
+import htsjdk.variant.variantcontext.VariantContextComparator;
 import javafx.collections.transformation.SortedList;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -39,11 +40,13 @@ import org.broadinstitute.hellbender.utils.SATagBuilder;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.collections.IntervalsSkipList;
+import org.broadinstitute.hellbender.utils.gcs.BamBucketIoUtils;
 import org.broadinstitute.hellbender.utils.read.CigarUtils;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
 import org.broadinstitute.hellbender.utils.read.GoogleGenomicsReadToGATKReadAdapter;
 import org.broadinstitute.hellbender.utils.read.SAMRecordToGATKReadAdapter;
 import org.broadinstitute.hellbender.utils.reference.ReferenceBases;
+import org.broadinstitute.hellbender.utils.variant.GATKVariant;
 import org.broadinstitute.hellbender.utils.variant.VariantContextVariantAdapter;
 import org.ojalgo.function.BinaryFunction;
 import org.seqdoop.hadoop_bam.BAMInputFormat;
@@ -103,6 +106,12 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
     )
     private String alignedContigsFileName;
 
+    @Argument(doc = "output bam file with contigs per variant",
+              fullName = StandardArgumentDefinitions.OUTPUT_LONG_NAME,
+              shortName = StandardArgumentDefinitions.OUTPUT_SHORT_NAME
+    )
+    private String outputFileName;
+
     @Override
     protected void onStartup() {
     }
@@ -119,7 +128,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         final JavaRDD<VariantContext> variants = variantsSource.getParallelVariantContexts(variantsFileName, getIntervals()).filter(ComposeStructuralVariantHaplotypesSpark::supportedVariant);
 
         final JavaPairRDD<VariantContext, List<GATKRead>> variantOverlappingContigs = composeOverlappingContigs(ctx, contigs, variants);
-        processVariants(variantOverlappingContigs, alignedContigs);
+        processVariants(variantOverlappingContigs, getReferenceSequenceDictionary(), alignedContigs);
 
     }
 
@@ -253,64 +262,98 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                         (l1, l2) -> {l1.addAll(l2); return l1;});
     }
 
-    protected void processVariants(final JavaPairRDD<VariantContext, List<GATKRead>> variantsAndOverlappingContigs, final ReadsSparkSource s) {
+    protected void processVariants(final JavaPairRDD<VariantContext, List<GATKRead>> variantsAndOverlappingContigs, final SAMSequenceDictionary dictionary, final ReadsSparkSource s) {
+
+        final SAMFileHeader outputHeader = new SAMFileHeader();
+        final SAMProgramRecord programRecord = new SAMProgramRecord(getProgramName());
+        programRecord.setCommandLine(getCommandLine());
+        outputHeader.setSequenceDictionary(dictionary);
+        outputHeader.addProgramRecord(programRecord);
+        outputHeader.setSortOrder(SAMFileHeader.SortOrder.coordinate);
+        outputHeader.addReadGroup(new SAMReadGroupRecord("CTG"));
+        final SAMFileWriter outputWriter = BamBucketIoUtils.makeWriter(outputFileName, outputHeader, true);
+
 
         final BinaryOperator<GATKRead> readMerger = (BinaryOperator<GATKRead> & Serializable)
                 ComposeStructuralVariantHaplotypesSpark::reduceContigReads;
+
+        final VariantContextComparator variantComparator = new VariantContextComparator(dictionary);
 
         final JavaPairRDD<VariantContext, List<GATKRead>> variantsAndOverlappingUniqueContigs
                 = variantsAndOverlappingContigs
                 .mapValues(l -> l.stream().collect(Collectors.groupingBy(GATKRead::getName)))
                 .mapValues(m -> m.values().stream()
                         .map(l -> l.stream().reduce(readMerger).orElseThrow(IllegalStateException::new))
-                        .collect(Collectors.toList()));
+                        .collect(Collectors.toList()))
+                .sortByKey(variantComparator);
 
-        variantsAndOverlappingUniqueContigs.toLocalIterator()
-                .forEachRemaining(vc -> {
-                    logger.info("VC " + vc._1().getContig() + ":" + vc._1().getStart() + "-" + vc._1().getEnd());
-                    vc._2().forEach(r -> {
-                        if (!r.getCigar().containsOperator(CigarOperator.H)) {
-                            logger.info("Contig " + r.getName() + " " + r.getLength() + " " + readAlignmentString(r) + " " + r.getAttributeAsString("SA") + " bases");
-                        } else {
-                            final SATagBuilder saTagBuilder = new SATagBuilder(r);
-                            final String targetName = r.getName();
-                            final List<SimpleInterval> locations = saTagBuilder.getArtificialReadsBasedOnSATag(s.getHeader(alignedContigsFileName, referenceArguments.getReferenceFileName()))
-                                    .stream().map(rr -> new SimpleInterval(rr.getContig(), rr.getStart(), rr.getEnd()))
-                                    .collect(Collectors.toList());
-                            final GATKRead candidate = s.getParallelReads(alignedContigsFileName, referenceArguments.getReferenceFileName(), locations)
-                                    .filter(rr -> rr.getName().equals(targetName))
-                                    .reduce((a,b) -> readMerger.apply(a, b));
-
-                            final GATKRead canonicRead = readMerger.apply(candidate, r);
-                            if (!canonicRead.getCigar().containsOperator(CigarOperator.H)) {
-                                logger.info("Contig " + canonicRead.getName() + " " + canonicRead.getLength() + " " + readAlignmentString(canonicRead) + " " + canonicRead.getAttributeAsString("SA") + " bases, needed additional search ");
-                            } else {
-                                logger.info("Contig " + canonicRead.getName() + " " + readAlignmentString(canonicRead) + " " + canonicRead.getAttributeAsString("SA") + " gave-up!");
+        Utils.stream(variantsAndOverlappingUniqueContigs.toLocalIterator())
+                .map(t -> resolvePendingContigs(t, s))
+                .forEach(t -> {
+                    final List<GATKRead> contigs = t._2();
+                    contigs.forEach(c -> {
+                        c.clearAttributes();
+                        c.setName(String.format("var_%s_%d", t._1().getContig(), t._1().getStart()) + ":" + c.getName());
+                        c.setIsPaired(false);
+                        c.setIsDuplicate(false);
+                        c.setIsSecondaryAlignment(false);
+                        c.setReadGroup("CTG");
+                        c.setCigar("*");
+                        if (c.isReverseStrand()) {
+                            c.setIsReverseStrand(false);
+                            final byte[] bases = c.getBases();
+                            SequenceUtil.reverseComplement(bases);
+                            c.setBases(bases);
+                            final byte[] quals = c.getBaseQualities();
+                            if (quals != null && quals.length > 0) {
+                                SequenceUtil.reverseQualities(quals);
+                                c.setBaseQualities(quals);
                             }
                         }
+                        c.setPosition(t._1().getContig(), t._1().getStart());
+                        c.setMappingQuality(0);
+                        c.setMateIsUnmapped();
+                        c.setIsUnmapped();
+                        outputWriter.addAlignment(c.convertToSAMRecord(outputHeader));
                     });
-                    logger.info("/VC");
-
                 });
+        outputWriter.close();
+    }
+
+
+
+
+    private Tuple2<VariantContext, List<GATKRead>> resolvePendingContigs(final Tuple2<VariantContext, List<GATKRead>> vc, final ReadsSparkSource s) {
+        logger.debug("VC " + vc._1().getContig() + ":" + vc._1().getStart() + "-" + vc._1().getEnd());
+        final List<GATKRead> updatedList = vc._2().stream()
+                .map(r -> {
+                    if (!r.getCigar().containsOperator(CigarOperator.H)) {
+                        return r;
+                    } else {
+                        final SATagBuilder saTagBuilder = new SATagBuilder(r);
+                        final String targetName = r.getName();
+                        final List<SimpleInterval> locations = saTagBuilder.getArtificialReadsBasedOnSATag(s.getHeader(alignedContigsFileName, referenceArguments.getReferenceFileName()))
+                                .stream().map(rr -> new SimpleInterval(rr.getContig(), rr.getStart(), rr.getEnd()))
+                                .collect(Collectors.toList());
+                        final GATKRead candidate = s.getParallelReads(alignedContigsFileName, referenceArguments.getReferenceFileName(), locations)
+                                .filter(rr -> rr.getName().equals(targetName))
+                                .reduce(((Function2< GATKRead, GATKRead, GATKRead> & Serializable) ComposeStructuralVariantHaplotypesSpark::reduceContigReads));
+
+                        final GATKRead canonicRead = reduceContigReads(candidate, r);
+                        if (canonicRead.getCigar().containsOperator(CigarOperator.H)) {
+                            logger.warn("Contig " + canonicRead.getName() + " " + readAlignmentString(canonicRead) + " " + canonicRead.getAttributeAsString("SA") + " gave-up!");
+                            return null;
+                        } else {
+                            return canonicRead;
+                        }
+                    }})
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        return new Tuple2<>(vc._1, updatedList);
     }
 
     private static String readAlignmentString(GATKRead r) {
         return r.getContig() + "," + r.getStart() + "," + (r.isReverseStrand() ?  "-" : "+") + "," + r.getCigar() + "," + r.getMappingQuality() + "," + r.getAttributeAsString("NM");
-    }
-
-    private GATKRead obtainCannonicAlignment(fin    al GATKRead contig, final Function<SimpleInterval, JavaRDD<GATKRead>> overlappingReads) {
-        if (!contig.getCigar().containsOperator(CigarOperator.H)) {
-            return contig;
-        } else {
-            SATagBuilder builder = new SATagBuilder(contig);
-            return builder.getArtificialReadsBasedOnSATag(getHeaderForReads()).stream()
-                    .map(r -> new SimpleInterval(r.getContig(), r.getStart(), r.getEnd()))
-                    .map(i -> overlappingReads.apply(i))
-                    .map(rdd -> rdd.filter(r -> r.getName().equals(contig.getName())).first())
-                    .filter(Objects::nonNull)
-                    .filter(r -> r.getCigar().containsOperator(CigarOperator.H))
-                    .findFirst().orElse(null);
-        }
     }
 
     private static GATKRead reduceContigReads(final GATKRead read1, final GATKRead read2) {
