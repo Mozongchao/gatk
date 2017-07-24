@@ -41,6 +41,7 @@ import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.collections.IntervalsSkipList;
 import org.broadinstitute.hellbender.utils.gcs.BamBucketIoUtils;
+import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
 import org.broadinstitute.hellbender.utils.read.CigarUtils;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
 import org.broadinstitute.hellbender.utils.read.GoogleGenomicsReadToGATKReadAdapter;
@@ -55,10 +56,7 @@ import scala.Tuple2;
 import javax.annotation.Nullable;
 import java.io.Serializable;
 import java.util.*;
-import java.util.function.BiFunction;
-import java.util.function.BinaryOperator;
-import java.util.function.Function;
-import java.util.function.Supplier;
+import java.util.function.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -290,10 +288,30 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         Utils.stream(variantsAndOverlappingUniqueContigs.toLocalIterator())
                 .map(t -> resolvePendingContigs(t, s))
                 .forEach(t -> {
+                    final StructuralVariantContext svc = new StructuralVariantContext(t._1());
                     final List<GATKRead> contigs = t._2();
+                    final int maxLength = contigs.stream()
+                            .mapToInt(GATKRead::getLength)
+                            .max().orElse(paddingSize);
+                    final SimpleInterval referenceInterval = new SimpleInterval(
+                            t._1().getContig(), (int) Math.floor(t._1().getStart() - maxLength * 2.0), (int) Math.ceil(t._1().getEnd() + maxLength * 2.0));
+                    final Haplotype referenceHaplotype = svc.composeHaplotype(0, maxLength * 2, getReference());
+                    referenceHaplotype.setGenomeLocation(null);
+                    final Haplotype alternativeHaplotype = svc.composeHaplotype(1, maxLength * 2, getReference());
+                    alternativeHaplotype.setGenomeLocation(null);
+                    final String idPrefix = String.format("var_%s_%d", t._1().getContig(), t._1().getStart());
+                    final Consumer<SAMRecord> haplotypeExtraSetup = r -> {
+                        r.setReferenceName(t._1().getContig());
+                        r.setAlignmentStart(t._1().getStart());
+                        r.setAttribute(SAMTag.RG.name(), "HAP");
+                    };
+                    outputWriter.addAlignment(referenceHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":ref",
+                            haplotypeExtraSetup));
+                    outputWriter.addAlignment(alternativeHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":alt",
+                            haplotypeExtraSetup));
                     contigs.forEach(c -> {
                         c.clearAttributes();
-                        c.setName(String.format("var_%s_%d", t._1().getContig(), t._1().getStart()) + ":" + c.getName());
+                        c.setName( idPrefix + ":" + c.getName());
                         c.setIsPaired(false);
                         c.setIsDuplicate(false);
                         c.setIsSecondaryAlignment(false);
@@ -319,9 +337,6 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                 });
         outputWriter.close();
     }
-
-
-
 
     private Tuple2<VariantContext, List<GATKRead>> resolvePendingContigs(final Tuple2<VariantContext, List<GATKRead>> vc, final ReadsSparkSource s) {
         logger.debug("VC " + vc._1().getContig() + ":" + vc._1().getStart() + "-" + vc._1().getEnd());
