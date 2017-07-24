@@ -270,7 +270,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                     logger.info("VC " + vc._1().getContig() + ":" + vc._1().getStart() + "-" + vc._1().getEnd());
                     vc._2().forEach(r -> {
                         if (!r.getCigar().containsOperator(CigarOperator.H)) {
-                            logger.info("Contig " + r.getName() + " " + r.getLength() + " bases");
+                            logger.info("Contig " + r.getName() + " " + r.getLength() + " " + readAlignmentString(r) + " " + r.getAttributeAsString("SA") + " bases");
                         } else {
                             final SATagBuilder saTagBuilder = new SATagBuilder(r);
                             final String targetName = r.getName();
@@ -283,9 +283,9 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
 
                             final GATKRead canonicRead = readMerger.apply(candidate, r);
                             if (!canonicRead.getCigar().containsOperator(CigarOperator.H)) {
-                                logger.info("Contig " + canonicRead.getName() + " " + canonicRead.getLength() + " bases, needed additional search ");
+                                logger.info("Contig " + canonicRead.getName() + " " + canonicRead.getLength() + " " + readAlignmentString(canonicRead) + " " + canonicRead.getAttributeAsString("SA") + " bases, needed additional search ");
                             } else {
-                                logger.info("Contig " + canonicRead.getName() + " gave-up!");
+                                logger.info("Contig " + canonicRead.getName() + " " + readAlignmentString(canonicRead) + " " + canonicRead.getAttributeAsString("SA") + " gave-up!");
                             }
                         }
                     });
@@ -294,7 +294,11 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                 });
     }
 
-    private GATKRead obtainCannonicAlignment(final GATKRead contig, final Function<SimpleInterval, JavaRDD<GATKRead>> overlappingReads) {
+    private static String readAlignmentString(GATKRead r) {
+        return r.getContig() + "," + r.getStart() + "," + (r.isReverseStrand() ?  "-" : "+") + "," + r.getCigar() + "," + r.getMappingQuality() + "," + r.getAttributeAsString("NM");
+    }
+
+    private GATKRead obtainCannonicAlignment(fin    al GATKRead contig, final Function<SimpleInterval, JavaRDD<GATKRead>> overlappingReads) {
         if (!contig.getCigar().containsOperator(CigarOperator.H)) {
             return contig;
         } else {
