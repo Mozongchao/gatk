@@ -269,7 +269,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         outputHeader.addProgramRecord(programRecord);
         outputHeader.setSortOrder(SAMFileHeader.SortOrder.coordinate);
         outputHeader.addReadGroup(new SAMReadGroupRecord("CTG"));
-        final SAMFileWriter outputWriter = BamBucketIoUtils.makeWriter(outputFileName, outputHeader, true);
+        final SAMFileWriter outputWriter = BamBucketIoUtils.makeWriter(outputFileName, outputHeader, false);
 
 
         final BinaryOperator<GATKRead> readMerger = (BinaryOperator<GATKRead> & Serializable)
@@ -282,8 +282,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                 .mapValues(l -> l.stream().collect(Collectors.groupingBy(GATKRead::getName)))
                 .mapValues(m -> m.values().stream()
                         .map(l -> l.stream().reduce(readMerger).orElseThrow(IllegalStateException::new))
-                        .collect(Collectors.toList()))
-                .sortByKey(variantComparator);
+                        .collect(Collectors.toList()));
 
         Utils.stream(variantsAndOverlappingUniqueContigs.toLocalIterator())
                 .map(t -> resolvePendingContigs(t, s))
@@ -296,14 +295,16 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                     final SimpleInterval referenceInterval = new SimpleInterval(
                             t._1().getContig(), (int) Math.floor(t._1().getStart() - maxLength * 2.0), (int) Math.ceil(t._1().getEnd() + maxLength * 2.0));
                     final Haplotype referenceHaplotype = svc.composeHaplotype(0, maxLength * 2, getReference());
-                    referenceHaplotype.setGenomeLocation(null);
+                    //referenceHaplotype.setGenomeLocation(null);
                     final Haplotype alternativeHaplotype = svc.composeHaplotype(1, maxLength * 2, getReference());
-                    alternativeHaplotype.setGenomeLocation(null);
+                    //alternativeHaplotype.setGenomeLocation(null);
                     final String idPrefix = String.format("var_%s_%d", t._1().getContig(), t._1().getStart());
                     final Consumer<SAMRecord> haplotypeExtraSetup = r -> {
-                        r.setReferenceName(t._1().getContig());
-                        r.setAlignmentStart(t._1().getStart());
+                        //r.setReferenceName(t._1().getContig());
+                        //
+                        // r.setAlignmentStart(t._1().getStart());
                         r.setAttribute(SAMTag.RG.name(), "HAP");
+                        r.setMappingQuality(60);
                     };
                     outputWriter.addAlignment(referenceHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":ref",
                             haplotypeExtraSetup));
