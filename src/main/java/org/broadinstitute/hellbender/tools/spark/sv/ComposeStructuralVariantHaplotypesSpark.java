@@ -34,11 +34,15 @@ import org.broadinstitute.hellbender.engine.spark.GATKSparkTool;
 import org.broadinstitute.hellbender.engine.spark.SparkSharder;
 import org.broadinstitute.hellbender.engine.spark.datasources.ReadsSparkSource;
 import org.broadinstitute.hellbender.engine.spark.datasources.VariantsSparkSource;
+import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.exceptions.UserException;
+import org.broadinstitute.hellbender.tools.BwaMemIndexImageCreator;
+import org.broadinstitute.hellbender.tools.spark.bwa.BwaSparkEngine;
 import org.broadinstitute.hellbender.utils.IntervalUtils;
 import org.broadinstitute.hellbender.utils.SATagBuilder;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
+import org.broadinstitute.hellbender.utils.bwa.*;
 import org.broadinstitute.hellbender.utils.collections.IntervalsSkipList;
 import org.broadinstitute.hellbender.utils.gcs.BamBucketIoUtils;
 import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
@@ -54,10 +58,11 @@ import org.seqdoop.hadoop_bam.BAMInputFormat;
 import scala.Tuple2;
 
 import javax.annotation.Nullable;
-import java.io.Serializable;
+import java.io.*;
 import java.util.*;
 import java.util.function.*;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
@@ -79,6 +84,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
 
     public static final int DEFAULT_SHARD_SIZE = 10_000;
     public static final int DEFAULT_PADDING_SIZE = 50;
+    public static final List<GATKRead> GATKREAD_LIST_ZEROVALUE = Collections.emptyList();
 
 
     @Argument(doc = "shard size",
@@ -109,6 +115,33 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
               shortName = StandardArgumentDefinitions.OUTPUT_SHORT_NAME
     )
     private String outputFileName;
+    public static final Function2<List<GATKRead>, GATKRead, List<GATKRead>> GATKREAD_LIST_AGGREGATOR = (l, r) -> {
+        if (l.isEmpty()) {
+            return Collections.singletonList(r);
+        } else if (l.size() == 1) {
+            final List<GATKRead> result = new ArrayList<>();
+            result.addAll(l);
+            result.add(r);
+            return result;
+        } else {
+            l.add(r);
+            return l;
+        }
+    };
+    public static final Function2<List<GATKRead>, List<GATKRead>, List<GATKRead>> GATKREAD_LIST_COMBINATOR = (l, k) -> {
+        if (l.isEmpty()) {
+            return k;
+        } else if (k.isEmpty()) {
+            return l;
+        } else if (l.size() == 1) {
+            final List<GATKRead> result = new ArrayList<>(l);
+            result.addAll(k);
+            return result;
+        } else {
+            l.addAll(k);
+            return l;
+        }
+    };
 
     @Override
     protected void onStartup() {
@@ -126,7 +159,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         final JavaRDD<VariantContext> variants = variantsSource.getParallelVariantContexts(variantsFileName, getIntervals()).filter(ComposeStructuralVariantHaplotypesSpark::supportedVariant);
 
         final JavaPairRDD<VariantContext, List<GATKRead>> variantOverlappingContigs = composeOverlappingContigs(ctx, contigs, variants);
-        processVariants(variantOverlappingContigs, getReferenceSequenceDictionary(), alignedContigs);
+        processVariants(ctx, variantOverlappingContigs, getReferenceSequenceDictionary(), alignedContigs);
 
     }
 
@@ -260,7 +293,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                         (l1, l2) -> {l1.addAll(l2); return l1;});
     }
 
-    protected void processVariants(final JavaPairRDD<VariantContext, List<GATKRead>> variantsAndOverlappingContigs, final SAMSequenceDictionary dictionary, final ReadsSparkSource s) {
+    protected void processVariants(final JavaSparkContext ctx, final JavaPairRDD<VariantContext, List<GATKRead>> variantsAndOverlappingContigs, final SAMSequenceDictionary dictionary, final ReadsSparkSource s) {
 
         final SAMFileHeader outputHeader = new SAMFileHeader();
         final SAMProgramRecord programRecord = new SAMProgramRecord(getProgramName());
@@ -292,24 +325,20 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                     final int maxLength = contigs.stream()
                             .mapToInt(GATKRead::getLength)
                             .max().orElse(paddingSize);
-                    final SimpleInterval referenceInterval = new SimpleInterval(
-                            t._1().getContig(), (int) Math.floor(t._1().getStart() - maxLength * 2.0), (int) Math.ceil(t._1().getEnd() + maxLength * 2.0));
                     final Haplotype referenceHaplotype = svc.composeHaplotype(0, maxLength * 2, getReference());
                     //referenceHaplotype.setGenomeLocation(null);
                     final Haplotype alternativeHaplotype = svc.composeHaplotype(1, maxLength * 2, getReference());
                     //alternativeHaplotype.setGenomeLocation(null);
                     final String idPrefix = String.format("var_%s_%d", t._1().getContig(), t._1().getStart());
-                    final Consumer<SAMRecord> haplotypeExtraSetup = r -> {
-                        //r.setReferenceName(t._1().getContig());
-                        //
-                        // r.setAlignmentStart(t._1().getStart());
-                        r.setAttribute(SAMTag.RG.name(), "HAP");
-                        r.setMappingQuality(60);
-                    };
-                    outputWriter.addAlignment(referenceHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":ref",
-                            haplotypeExtraSetup));
-                    outputWriter.addAlignment(alternativeHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":alt",
-                            haplotypeExtraSetup));
+                    outputHaplotypesAsSAMRecords(outputHeader, outputWriter, referenceHaplotype, alternativeHaplotype, idPrefix);
+                    final double[][] scores = new double[2][];
+                    final Map<String, List<GATKRead>> referenceAlignedContigs = alignContigsAgainstHaplotype(ctx, outputHeader, referenceHaplotype, contigs);
+                    final Map<String, List<GATKRead>> alternativeAlignedContigs = alignContigsAgainstHaplotype(ctx, outputHeader, alternativeHaplotype, contigs);
+                    for (int i = 0; i < contigs.size(); i++) {
+                        final String name = contigs.get(i).getName();
+                        final Tuple2<List<GATKRead>, Double> referenceBestArragement  = bestScoreArragement(referenceAlignedContigs.get(name));
+                        final Tuple2<List<GATKRead>, Double> alternativeBestArragement = bestScoreArragement(referenceAlignedContigs.get(name));
+                    }
                     contigs.forEach(c -> {
                         c.clearAttributes();
                         c.setName( idPrefix + ":" + c.getName());
@@ -337,6 +366,112 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                     });
                 });
         outputWriter.close();
+    }
+
+    //TODO
+    private static Tuple2<List<GATKRead>,Double> bestScoreArragement(final List<GATKRead> gatkReads) {
+        return null;
+    }
+
+    private final Map<String,List<GATKRead>> alignContigsAgainstHaplotype(final JavaSparkContext ctx, final SAMFileHeader header, final Haplotype haplotype, final List<GATKRead> contigs) {
+        File fastaFile = null;
+        File imageFile = null;
+        try {
+            fastaFile = createFastaFromHaplotype(haplotype);
+            imageFile = createImageFileFromFasta(fastaFile);
+            final Map<String, List<GATKRead>> alignedContigs;
+            if (contigs.size() > 10) {
+                final BwaSparkEngine bwa = new BwaSparkEngine(ctx, imageFile.getPath(), header, header.getSequenceDictionary());
+                alignedContigs = bwa.align(ctx.parallelize(contigs))
+                        .mapToPair(r -> new Tuple2<>(r.getName(), r))
+                        .aggregateByKey(GATKREAD_LIST_ZEROVALUE, GATKREAD_LIST_AGGREGATOR, GATKREAD_LIST_COMBINATOR)
+                        .collectAsMap();
+                bwa.close();
+            } else {
+                final BwaMemIndex index = new BwaMemIndex(imageFile.getPath());
+                final BwaMemAligner aligner = new BwaMemAligner(index);
+                final List<List<BwaMemAlignment>> alignments = aligner.alignSeqs(contigs, GATKRead::getBases);
+                alignedContigs = IntStream.range(0, contigs.size())
+                        .mapToObj(i -> new Tuple2<>(contigs.get(i), alignments.get(i)))
+                        .map(t -> new Tuple2<>(t._1().getName(), t._2().stream().map(a -> convertToGATKRead(a, t._1().getName(), header)).collect(Collectors.toList())))
+                        .collect(Collectors.toMap(Tuple2::_1, Tuple2::_2));
+            }
+            return alignedContigs;
+        } finally {
+            Stream.of(fastaFile, imageFile)
+                    .filter(Objects::nonNull)
+                    .forEach(File::delete);
+        }
+    }
+
+    private static GATKRead convertToGATKRead(final BwaMemAlignment alignment, final String name, final SAMFileHeader header) {
+        final SAMRecord samRecord = new SAMRecord(header);
+        samRecord.setReadPairedFlag(false);
+        samRecord.setReadName(name);
+        samRecord.setFlags(alignment.getSamFlag());
+        if (samRecord.getReadUnmappedFlag()) {
+            samRecord.setReferenceIndex(alignment.getRefId());
+            samRecord.setAlignmentStart(alignment.getSeqStart());
+            samRecord.setCigarString(alignment.getCigar());
+            samRecord.setMappingQuality(alignment.getMapQual());
+            samRecord.setAttribute(SAMTag.NM.name(), alignment.getNMismatches());
+            samRecord.setAttribute(SAMTag.AS.name(), alignment.getAlignerScore());
+            if (alignment.getXATag() != null) { samRecord.setAttribute("XA", alignment.getXATag()); }
+            if (alignment.getMDTag() != null) { samRecord.setAttribute(SAMTag.MD.name(), alignment.getMDTag()); }
+        }
+        if (samRecord.getReadPairedFlag() && !samRecord.getMateUnmappedFlag()) {
+            samRecord.setMateReferenceIndex(alignment.getMateRefId());
+            samRecord.setMateAlignmentStart(alignment.getMateRefStart());
+        }
+        return new SAMRecordToGATKReadAdapter(samRecord);
+    }
+
+    private File createFastaFromHaplotype(final Haplotype haplotype) {
+        final File result;
+        try {
+            result = File.createTempFile("gatk-sv-bwa-tmp-ref-", ".fasta");
+        } catch (final IOException ex) {
+            throw new GATKException("cound not optain a file location for a temporary haplotype reference fasta file", ex);
+        }
+        result.deleteOnExit();
+        try (final PrintWriter fastaWriter = new PrintWriter(new FileWriter(result))) {
+
+            fastaWriter.println(">seq");
+            final byte[] bases = haplotype.getBases();
+            int nextIdx = 0;
+            while (nextIdx < bases.length) {
+                fastaWriter.println(new String(bases, nextIdx, Math.min(bases.length - nextIdx, 60)));
+                nextIdx += 60;
+            }
+        } catch (final IOException ex) {
+            throw new GATKException("could not write haplotype reference fasta file '" + result + "'", ex);
+        }
+        return result;
+    }
+
+    private File createImageFileFromFasta(final File fasta) {
+        final File result = new File(fasta.getPath().replaceAll("\\.*$",".img"));
+        try {
+            BwaMemIndex.createIndexImageFromFastaFile(fasta.getPath(), result.getPath());
+        } catch (final Throwable ex) {
+            throw new GATKException("problems indexing fasta file '" + fasta + "' into '" + result + "'", ex);
+        }
+        result.deleteOnExit();
+        return result;
+    }
+
+    private void outputHaplotypesAsSAMRecords(SAMFileHeader outputHeader, SAMFileWriter outputWriter, Haplotype referenceHaplotype, Haplotype alternativeHaplotype, String idPrefix) {
+        final Consumer<SAMRecord> haplotypeExtraSetup = r -> {
+            //r.setReferenceName(t._1().getContig());
+            //
+            // r.setAlignmentStart(t._1().getStart());
+            r.setAttribute(SAMTag.RG.name(), "HAP");
+            r.setMappingQuality(60);
+        };
+        outputWriter.addAlignment(referenceHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":ref",
+                haplotypeExtraSetup));
+        outputWriter.addAlignment(alternativeHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":alt",
+                haplotypeExtraSetup));
     }
 
     private Tuple2<VariantContext, List<GATKRead>> resolvePendingContigs(final Tuple2<VariantContext, List<GATKRead>> vc, final ReadsSparkSource s) {

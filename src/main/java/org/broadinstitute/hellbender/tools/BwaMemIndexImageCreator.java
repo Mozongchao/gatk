@@ -34,10 +34,10 @@ public final class BwaMemIndexImageCreator extends CommandLineProgram {
     protected final Object doWork() {
 
         if (referenceIndexImageOutputLoc == null) {
-            referenceIndexImageOutputLoc = referenceFastaLoc+".img";
+            referenceIndexImageOutputLoc = referenceFastaLoc + ".img";
         }
 
-        BwaMemIndex.createIndexImage(referenceFastaLoc, referenceIndexImageOutputLoc);
+        BwaMemIndex.createIndexImageFromFastaFile(referenceFastaLoc, referenceIndexImageOutputLoc);
         return null;
     }
 }
