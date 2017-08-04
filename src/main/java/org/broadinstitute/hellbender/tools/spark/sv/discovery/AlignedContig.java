@@ -11,6 +11,8 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.OptionalDouble;
+import org.broadinstitute.hellbender.tools.spark.sv.discovery.AlignedAssembly.AlignmentInterval;
 
 /**
  * Locally assembled contig:
@@ -21,15 +23,32 @@ import java.util.stream.Collectors;
 @DefaultSerializer(AlignedContig.Serializer.class)
 public final class AlignedContig {
 
+    public final OptionalDouble score;
     public final String contigName;
     public final byte[] contigSequence;
     public final List<AlignmentInterval> alignmentIntervals;
 
     public AlignedContig(final String contigName, final byte[] contigSequence, final List<AlignmentInterval> alignmentIntervals) {
+        this (contigName, contigSequence, alignmentIntervals, null);
+    }
+
+    public AlignedContig(final String contigName, final byte[] contigSequence, final List<AlignmentInterval> alignmentIntervals, final Double score) {
         this.contigName = contigName;
         this.contigSequence = contigSequence;
         this.alignmentIntervals = Utils.stream(alignmentIntervals)
-                .sorted(Comparator.comparing(a -> a.startInAssembledContig)).collect(Collectors.toList());
+                    .sorted(Comparator.comparing(a -> a.startInAssembledContig)).collect(Collectors.toList());
+        this.score = score == null ? OptionalDouble.empty() : OptionalDouble.of(score);
+    }
+
+    public double getScore() {
+        if (!score.isPresent()) {
+            return Double.NaN;
+        }
+        return score.getAsDouble();
+    }
+
+    public boolean hasScore() {
+        return score.isPresent();
     }
 
     AlignedContig(final Kryo kryo, final Input input) {
@@ -47,6 +66,11 @@ public final class AlignedContig {
         for (int i = 0; i < nAlignments; ++i) {
             alignmentIntervals.add(new AlignmentInterval(kryo, input));
         }
+        if (input.readBoolean()) {
+            score = OptionalDouble.of(input.readDouble());
+        } else {
+            score = OptionalDouble.empty();
+        }
     }
 
     void serialize(final Kryo kryo, final Output output) {
@@ -60,6 +84,10 @@ public final class AlignedContig {
 
         output.writeInt(alignmentIntervals.size());
         alignmentIntervals.forEach(it -> it.serialize(kryo, output));
+        output.writeBoolean(score.isPresent());
+        if (score.isPresent()) {
+            output.writeDouble(score.getAsDouble());
+        }
     }
 
     public static final class Serializer extends com.esotericsoftware.kryo.Serializer<AlignedContig> {

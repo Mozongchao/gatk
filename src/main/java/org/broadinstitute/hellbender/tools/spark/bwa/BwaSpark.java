@@ -45,7 +45,7 @@ public final class BwaSpark extends GATKSparkTool {
     protected void runTool(final JavaSparkContext ctx) {
         try ( final BwaSparkEngine engine =
                       new BwaSparkEngine(ctx, indexImageFile, getHeaderForReads(), getReferenceSequenceDictionary()) ) {
-            final JavaRDD<GATKRead> reads = engine.align(getReads());
+            final JavaRDD<GATKRead> reads = engine.alignPairs(getReads());
 
             try {
                 ReadsSparkSink.writeReads(ctx, output, null, reads, engine.getHeader(),

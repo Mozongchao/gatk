@@ -50,7 +50,7 @@ import static org.broadinstitute.hellbender.tools.spark.sv.evidence.BreakpointEv
  */
 @CommandLineProgramProperties(summary="Find reads that evidence breakpoints."+
         "  Pull reads for local assemblies in breakpoint regions using shared kmers."+
-        "  Assemble breakpoint regions with FermiLite, and align assembled contigs to reference.",
+        "  Assemble breakpoint regions with FermiLite, and alignPairs assembled contigs to reference.",
         oneLineSummary="Prepare local assemblies of putative genomic breakpoints for structural variant discovery.",
         programGroup=StructuralVariationSparkProgramGroup.class)
 @BetaFeature

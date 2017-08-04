@@ -112,17 +112,17 @@ public final class SWPairwiseAlignment {
 
     /**
      * Only for testing purposes in the SWPairwiseAlignmentMain function
-     * set to true to keep SW scoring matrix after align call
+     * set to true to keep SW scoring matrix after alignPairs call
      */
     private static final boolean keepScoringMatrix = false;
 
     /**
      * Create a new SW pairwise aligner
      *
-     * After creating the object the two sequences are aligned with an internal call to align(seq1, seq2)
+     * After creating the object the two sequences are aligned with an internal call to alignPairs(seq1, seq2)
      *
-     * @param seq1 the first sequence we want to align
-     * @param seq2 the second sequence we want to align
+     * @param seq1 the first sequence we want to alignPairs
+     * @param seq2 the second sequence we want to alignPairs
      * @param parameters the SW parameters to use
      */
     public SWPairwiseAlignment(final byte[] seq1, final byte[] seq2, final Parameters parameters) {
@@ -133,10 +133,10 @@ public final class SWPairwiseAlignment {
     /**
      * Create a new SW pairwise aligner
      *
-     * After creating the object the two sequences are aligned with an internal call to align(seq1, seq2)
+     * After creating the object the two sequences are aligned with an internal call to alignPairs(seq1, seq2)
      *
-     * @param seq1 the first sequence we want to align
-     * @param seq2 the second sequence we want to align
+     * @param seq1 the first sequence we want to alignPairs
+     * @param seq2 the second sequence we want to alignPairs
      * @param parameters the SW parameters to use
      * @param strategy   the overhang strategy to use
      */
@@ -456,7 +456,7 @@ public final class SWPairwiseAlignment {
         // those extra bases sticking out of the ref into the first cigar element if DO_SOFTCLIP is false;
         // otherwise they will be softclipped. For instance,
         // if read length is 5 and alignment starts at offset -2 (i.e. read starts before the ref, and only
-        // last 3 bases of the read overlap with/align to the ref), the cigar will be still 5M if
+        // last 3 bases of the read overlap with/alignPairs to the ref), the cigar will be still 5M if
         // DO_SOFTCLIP is false or 2S3M if DO_SOFTCLIP is true.
         // The consumers need to check for the alignment offset and deal with it properly.
         final int alignment_offset;

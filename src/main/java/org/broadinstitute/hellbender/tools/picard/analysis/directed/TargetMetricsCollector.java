@@ -317,7 +317,7 @@ public abstract class TargetMetricsCollector<METRIC_TYPE extends MultiLevelMetri
                 ++this.metrics.PF_UNIQUE_READS;
             }
 
-            // Don't bother with reads that didn't align uniquely
+            // Don't bother with reads that didn't alignPairs uniquely
             if (rec.getReadUnmappedFlag() || rec.getMappingQuality() == 0) {
                 return;
             }

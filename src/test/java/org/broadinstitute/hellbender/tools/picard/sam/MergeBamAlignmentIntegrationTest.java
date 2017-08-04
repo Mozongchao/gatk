@@ -74,7 +74,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
                 Collections.singletonList(supplementalReadAlignedBam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, outputWithSupplemental,
                 SamPairUtil.PairOrientation.FR, null, null, null
         );
@@ -115,7 +115,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
             } else if (sam.getReadName().equals("neither_read_aligns_or_present")) {
                 Assert.assertTrue(sam.getReadUnmappedFlag(), "Read should be unmapped but isn't");
             }
-            // Two pairs in which only the first read should align
+            // Two pairs in which only the first read should alignPairs
             else if (sam.getReadName().equals("both_reads_present_only_first_aligns") ||
                     sam.getReadName().equals("read_2_too_many_gaps")) {
                 if (sam.getFirstOfPairFlag()) {
@@ -144,7 +144,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(unmappedInputFile, Collections.singletonList(alignedInputFile),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, output,
                 SamPairUtil.PairOrientation.FR, null, null, null
         );
@@ -157,7 +157,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         SAMProgramRecord pg = result.getFileHeader().getProgramRecords().get(0);
         Assert.assertEquals(pg.getProgramGroupId(), "0");
         Assert.assertEquals(pg.getProgramVersion(), "1.0");
-        Assert.assertEquals(pg.getCommandLine(), "align!");
+        Assert.assertEquals(pg.getCommandLine(), "alignPairs!");
         Assert.assertEquals(pg.getProgramName(), "myAligner");
 
         final SAMReadGroupRecord rg = result.getFileHeader().getReadGroups().get(0);
@@ -189,7 +189,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
             } else if (sam.getReadName().equals("neither_read_aligns_or_present")) {
                 Assert.assertTrue(sam.getReadUnmappedFlag(), "Read should be unmapped but isn't");
             }
-            // Two pairs in which only the first read should align
+            // Two pairs in which only the first read should alignPairs
             else if (sam.getReadName().equals("both_reads_present_only_first_aligns") ||
                     sam.getReadName().equals("read_2_too_many_gaps")) {
                 if (sam.getFirstOfPairFlag()) {
@@ -226,7 +226,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(unmappedBam, Arrays.asList(oneHalfAlignedBam, otherHalfAlignedBam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, output,
                 SamPairUtil.PairOrientation.FR, null, null, null
         );
@@ -256,7 +256,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
             } else if (sam.getReadName().equals("neither_read_aligns_or_present")) {
                 Assert.assertTrue(sam.getReadUnmappedFlag(), "Read should be unmapped but isn't");
             }
-            // Two pairs in which only the first read should align
+            // Two pairs in which only the first read should alignPairs
             else if (sam.getReadName().equals("both_reads_present_only_first_aligns") ||
                     sam.getReadName().equals("read_2_too_many_gaps")) {
                 if (sam.getFirstOfPairFlag()) {
@@ -313,7 +313,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
 
         doMergeAlignment(unmapped, null, r1Align, r2Align, r1Trim, r2Trim,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, output,
                 SamPairUtil.PairOrientation.FR, null, null, null
         );
@@ -377,7 +377,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(badorderUnmappedBam, Collections.singletonList(badorderAlignedBam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, merged,
                 SamPairUtil.PairOrientation.FR, null,
                 null, null
@@ -392,7 +392,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(multiHitUnmappedBam, Collections.singletonList(multiHitAlignedBam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, merged,
                 null, null, null, null
         );
@@ -551,7 +551,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(multiHitFilterUnmappedBam, Collections.singletonList(alignedSam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, mergedSam,
                 null, null, null, null
         );
@@ -809,7 +809,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
             doMergeAlignment(multiHitFilterFragmentUnmappedBam, Collections.singletonList(alignedSam),
                     null, null, null, null,
                     false, true, false, 1,
-                    "0", "1.0", "align!", "myAligner",
+                    "0", "1.0", "alignPairs!", "myAligner",
                     fasta, mergedSam,
                     null, null, null, null);
 
@@ -952,7 +952,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(unmappedSam, Collections.singletonList(alignedSam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, output,
                 SamPairUtil.PairOrientation.FR,
                 MergeBamAlignment.PrimaryAlignmentStrategy.EarliestFragment,
@@ -974,7 +974,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(sams[0], Collections.singletonList(sams[1]),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, output,
                 SamPairUtil.PairOrientation.FR, MergeBamAlignment.PrimaryAlignmentStrategy.EarliestFragment,
                 ONE_OF_THE_BEST_TAG,
@@ -1110,7 +1110,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
                 Collections.singletonList(clipTestAlignedBam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 clippedReference, output,
                 SamPairUtil.PairOrientation.FR, null,
                 null, null);
@@ -1194,7 +1194,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(unmappedSam, Collections.singletonList(alignedSam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 clippedReference, output,
                 SamPairUtil.PairOrientation.FR,
                 MergeBamAlignment.PrimaryAlignmentStrategy.BestEndMapq,
@@ -1403,7 +1403,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
 
         try (final SAMFileWriter alignedWriter = factory.makeSAMWriter(header, false, alignedSam)) {
 
-            // Semi-randomly make the reads align to forward or reverse strand.
+            // Semi-randomly make the reads alignPairs to forward or reverse strand.
             boolean reverse = false;
             for (final MostDistantStrategyAlignmentSpec spec : firstEndSpecs) {
                 addAlignmentForMostStrategy(alignedWriter, firstUnmappedRead, spec, reverse);
@@ -1426,7 +1426,7 @@ public final class MergeBamAlignmentIntegrationTest extends CommandLineProgramTe
         doMergeAlignment(unmappedSam, Collections.singletonList(alignedSam),
                 null, null, null, null,
                 false, true, false, 1,
-                "0", "1.0", "align!", "myAligner",
+                "0", "1.0", "alignPairs!", "myAligner",
                 fasta, output,
                 SamPairUtil.PairOrientation.FR, MergeBamAlignment.PrimaryAlignmentStrategy.MostDistant,
                 null, includeSecondary);
