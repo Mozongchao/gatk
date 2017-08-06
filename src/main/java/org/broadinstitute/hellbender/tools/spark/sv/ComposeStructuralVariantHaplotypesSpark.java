@@ -295,33 +295,34 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                         final AlignedContigScore alternativeScore = calculateAlignedContigScore(alternativeAlignment);
                         final String hpTagValue = calculateHPTag(referenceScore.getValue(), alternativeScore.getValue());
                         final double hpQualTagValue = calculateHPQualTag(referenceScore.getValue(), alternativeScore.getValue());
-                        c.clearAttributes();
-                        c.setAttribute("HP", hpTagValue);
-                        c.setAttribute("HQ", "" + hpQualTagValue);
-                        c.setAttribute("RS", "" + referenceScore);
-                        c.setAttribute("XS", "" + alternativeScore);
-                        c.setName( idPrefix + ":" + c.getName());
-                        c.setIsPaired(false);
-                        c.setIsDuplicate(false);
-                        c.setIsSecondaryAlignment(false);
-                        c.setReadGroup("CTG");
-                        c.setCigar("*");
+                        final SAMRecord outputRecord = new SAMRecord(outputHeader);
+                        outputRecord.setAttribute(SAMTag.RG.name(), "CTG");
+                        outputRecord.setAttribute("HP", hpTagValue);
+                        outputRecord.setAttribute("HQ", "" + hpQualTagValue);
+                        outputRecord.setAttribute("RS", "" + referenceScore);
+                        outputRecord.setAttribute("XS", "" + alternativeScore);
+                        outputRecord.setAttribute("VC", "" + t._1().getContig() + ":" + t._1().getStart());
+                        outputRecord.setReadName( idPrefix + ":" + c.getName());
+                        outputRecord.setReadPairedFlag(false);
+                        outputRecord.setDuplicateReadFlag(false);
+                        outputRecord.setSecondOfPairFlag(false);
+                        outputRecord.setCigarString("*");
+                        outputRecord.setReadNegativeStrandFlag(false);
+                        final byte[] bases = c.getBases();
+                        final byte[] quals = c.getBaseQualities();
                         if (c.isReverseStrand()) {
-                            c.setIsReverseStrand(false);
-                            final byte[] bases = c.getBases();
                             SequenceUtil.reverseComplement(bases);
-                            c.setBases(bases);
-                            final byte[] quals = c.getBaseQualities();
                             if (quals != null && quals.length > 0) {
                                 SequenceUtil.reverseQualities(quals);
-                                c.setBaseQualities(quals);
                             }
                         }
-                        c.setPosition(t._1().getContig(), t._1().getStart());
-                        c.setMappingQuality(0);
-                        c.setMateIsUnmapped();
-                        c.setIsUnmapped();
-                        outputWriter.addAlignment(c.convertToSAMRecord(outputHeader));
+                        outputRecord.setReadBases(bases);
+                        outputRecord.setBaseQualities(quals);
+                        outputRecord.setReferenceName(t._1().getContig());
+                        outputRecord.setAlignmentStart(t._1().getStart());
+                        outputRecord.setMappingQuality(0);
+                        outputRecord.setReadUnmappedFlag(true);
+                        outputWriter.addAlignment(outputRecord);
                     });
                 });
         outputWriter.close();
@@ -342,8 +343,9 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
             this.totalMismatches = mismatches;
             this.totalIndelLength = totalIndelLength;
         }
+
         public double getValue() {
-            return -(int)Math.round(totalMatches * 0.01  + totalMismatches * 30 + totalIndels * 45 + (totalIndelLength - totalIndels) * 3
+            return -(int) Math.round(totalMatches * 0.01  + totalMismatches * 30 + totalIndels * 45 + (totalIndelLength - totalIndels) * 3
                     + totalReversals * 60);
         }
 
