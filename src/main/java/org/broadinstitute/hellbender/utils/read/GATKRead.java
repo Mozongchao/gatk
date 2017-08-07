@@ -794,10 +794,10 @@ public interface GATKRead extends Locatable {
                 return -1;
             } else if (!isReverseStrand()) {
                 final int offset = getAfterLastAlignmentBaseOffset();
-                return offset == -1 ? -1 : offset + 1 + getLeftHardClipLength();
+                return offset == -1 ? -1 : offset + getLeftHardClipLength();
             } else { // isReverseStrand
                 final int offset = getFirstAlignedBaseOffset();
-                return offset == -1 ? -1 : getLength() - offset + 1 + getRightHardClipLength();
+                return offset == -1 ? -1 : getLength() - offset + getRightHardClipLength();
             }
         }
     }

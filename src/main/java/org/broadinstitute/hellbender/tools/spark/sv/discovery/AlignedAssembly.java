@@ -6,6 +6,8 @@ import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.*;
+import htsjdk.samtools.util.CigarUtil;
+import htsjdk.samtools.util.SequenceUtil;
 import org.broadinstitute.hellbender.tools.spark.sv.SVConstants;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
@@ -14,9 +16,7 @@ import org.broadinstitute.hellbender.utils.bwa.BwaMemAlignment;
 import org.broadinstitute.hellbender.utils.read.CigarUtils;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.function.IntFunction;
 
 /**
@@ -68,7 +68,6 @@ public final class AlignedAssembly {
             this.referenceInterval = new SimpleInterval(read);
             this.startInAssembledContig = read.getFirstAlignedReadPosition();
             this.endInAssembledContig = read.getLastAlignedReadPosition();
-
             this.cigarAlong5to3DirectionOfContig = isMappedReverse ? CigarUtils.invertCigar(read.getCigar()) : read.getCigar();
             this.forwardStrand = !isMappedReverse;
             this.mapQual = read.getMappingQuality();
@@ -212,6 +211,52 @@ public final class AlignedAssembly {
             result = 31 * result + mismatches;
             return result;
         }
+
+
+        /**
+         * Returns a {@link SAMRecord} instance that reflects this alignment interval given the
+         * output {@link SAMFileHeader} and the enclosing {@link AlignedContig}.
+         *
+         * @param header the returned record header.
+         * @param contig the enclosing contig.
+         * @param hardClip whether clippings must be hard ones.
+         * @return never {@code null}.
+         */
+        public SAMRecord convertToSAMRecord(final SAMFileHeader header, final AlignedContig contig, final boolean hardClip) {
+            Utils.nonNull(header, "the input header cannot be null");
+            Utils.nonNull(contig, "the input contig cannot be null");
+            final SAMRecord result = new SAMRecord(header);
+
+            result.setReadName(contig.contigName);
+            result.setReadPairedFlag(false);
+            result.setReadNegativeStrandFlag(!forwardStrand);
+
+            // taking care of the bases;
+            final byte[] bases = hardClip ? Arrays.copyOfRange(contig.contigSequence, startInAssembledContig - 1, endInAssembledContig) : contig.contigSequence.clone();
+            if (!forwardStrand) {
+                SequenceUtil.reverseComplement(bases);
+            }
+            result.setReadBases(bases);
+
+            // taking care of the cigar.
+            final Cigar cigar = forwardStrand ? this.cigarAlong5to3DirectionOfContig :
+                    CigarUtils.invertCigar(this.cigarAlong5to3DirectionOfContig);
+
+            result.setCigar(hardClip ? CigarUtils.hardClip(cigar) : CigarUtils.softClip(cigar));
+
+            result.setReferenceName(referenceInterval.getContig());
+            result.setAlignmentStart(referenceInterval.getStart());
+            if (mapQual >= 0) {
+                result.setMappingQuality(this.mapQual);
+            }
+            if (mismatches != -1) {
+                result.setAttribute(SAMTag.NM.name(), mismatches);
+            }
+            if (alignmentScore != -1) {
+                result.setAttribute(SAMTag.AS.name(), alignmentScore);
+            }
+            return result;
+        }
     }
 
     public AlignedAssembly(final int assemblyId, final List<AlignedContig> alignedContigs) {
@@ -267,5 +312,4 @@ public final class AlignedAssembly {
         result = 31 * result + alignedContigs.hashCode();
         return result;
     }
-
 }

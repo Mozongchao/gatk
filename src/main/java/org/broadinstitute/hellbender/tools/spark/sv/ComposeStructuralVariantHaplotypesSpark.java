@@ -288,44 +288,90 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                     outputHaplotypesAsSAMRecords(outputHeader, outputWriter, referenceHaplotype, alternativeHaplotype, idPrefix);
                     final Map<String, AlignedContig> referenceAlignedContigs = alignContigsAgainstHaplotype(ctx, outputHeader, referenceHaplotype, contigs);
                     final Map<String, AlignedContig> alternativeAlignedContigs = alignContigsAgainstHaplotype(ctx, outputHeader, alternativeHaplotype, contigs);
-                    contigs.forEach(c -> {
-                        final AlignedContig referenceAlignment = referenceAlignedContigs.get(c.getName());
-                        final AlignedContig alternativeAlignment = alternativeAlignedContigs.get(c.getName());
+                    contigs.forEach(contig -> {
+                        final AlignedContig referenceAlignment = referenceAlignedContigs.get(contig.getName());
+                        final AlignedContig alternativeAlignment = alternativeAlignedContigs.get(contig.getName());
                         final AlignedContigScore referenceScore = calculateAlignedContigScore(referenceAlignment);
                         final AlignedContigScore alternativeScore = calculateAlignedContigScore(alternativeAlignment);
                         final String hpTagValue = calculateHPTag(referenceScore.getValue(), alternativeScore.getValue());
                         final double hpQualTagValue = calculateHPQualTag(referenceScore.getValue(), alternativeScore.getValue());
-                        final SAMRecord outputRecord = new SAMRecord(outputHeader);
-                        outputRecord.setAttribute(SAMTag.RG.name(), "CTG");
-                        outputRecord.setAttribute("HP", hpTagValue);
-                        outputRecord.setAttribute("HQ", "" + hpQualTagValue);
-                        outputRecord.setAttribute("RS", "" + referenceScore);
-                        outputRecord.setAttribute("XS", "" + alternativeScore);
-                        outputRecord.setAttribute("VC", "" + t._1().getContig() + ":" + t._1().getStart());
-                        outputRecord.setReadName( idPrefix + ":" + c.getName());
-                        outputRecord.setReadPairedFlag(false);
-                        outputRecord.setDuplicateReadFlag(false);
-                        outputRecord.setSecondOfPairFlag(false);
-                        outputRecord.setCigarString("*");
-                        outputRecord.setReadNegativeStrandFlag(false);
-                        final byte[] bases = c.getBases();
-                        final byte[] quals = c.getBaseQualities();
-                        if (c.isReverseStrand()) {
-                            SequenceUtil.reverseComplement(bases);
-                            if (quals != null && quals.length > 0) {
-                                SequenceUtil.reverseQualities(quals);
-                            }
+                        if (!referenceAlignment.alignmentIntervals.isEmpty()) {
+                            final List<SAMRecord> records = convertToSAMRecords(referenceAlignment, outputHeader, t._1().getContig(), referenceHaplotype.getGenomeLocation().getStart(), idPrefix, hpTagValue, hpQualTagValue, referenceScore, alternativeScore, t._1().getStart());
+                            records.forEach(outputWriter::addAlignment);
+                        } else {
+                            final SAMRecord outputRecord = convertToUnmappedSAMRecord(outputHeader, t._1().getContig(), t._1().getStart(), idPrefix, contig, referenceScore, alternativeScore, hpTagValue, hpQualTagValue);
+                            outputWriter.addAlignment(outputRecord);
                         }
-                        outputRecord.setReadBases(bases);
-                        outputRecord.setBaseQualities(quals);
-                        outputRecord.setReferenceName(t._1().getContig());
-                        outputRecord.setAlignmentStart(t._1().getStart());
-                        outputRecord.setMappingQuality(0);
-                        outputRecord.setReadUnmappedFlag(true);
-                        outputWriter.addAlignment(outputRecord);
                     });
                 });
         outputWriter.close();
+    }
+
+    private SAMRecord convertToUnmappedSAMRecord(SAMFileHeader outputHeader, final String referenceContig
+            , final int start, String idPrefix, GATKRead originalContig, AlignedContigScore referenceScore, AlignedContigScore alternativeScore, String hpTagValue, double hpQualTagValue) {
+        final SAMRecord outputRecord = new SAMRecord(outputHeader);
+        outputRecord.setAttribute(SAMTag.RG.name(), "CTG");
+        outputRecord.setAttribute("HP", hpTagValue);
+        outputRecord.setAttribute("HQ", "" + hpQualTagValue);
+        outputRecord.setAttribute("RS", "" + referenceScore);
+        outputRecord.setAttribute("XS", "" + alternativeScore);
+        outputRecord.setAttribute("VC", "" + referenceContig + ":" + start);
+        outputRecord.setReadName(idPrefix + ":" + originalContig.getName());
+        outputRecord.setReadPairedFlag(false);
+        outputRecord.setDuplicateReadFlag(false);
+        outputRecord.setSecondOfPairFlag(false);
+        outputRecord.setCigarString("*");
+        outputRecord.setReadNegativeStrandFlag(false);
+        final byte[] bases = originalContig.getBases();
+        final byte[] quals = originalContig.getBaseQualities();
+        if (originalContig.isReverseStrand()) {
+            SequenceUtil.reverseComplement(bases);
+            if (quals != null && quals.length > 0) {
+                SequenceUtil.reverseQualities(quals);
+            }
+        }
+        outputRecord.setReadBases(bases);
+        outputRecord.setBaseQualities(quals);
+        outputRecord.setReferenceName(referenceContig);
+        outputRecord.setAlignmentStart(start);
+        outputRecord.setMappingQuality(0);
+        outputRecord.setReadUnmappedFlag(true);
+        return outputRecord;
+    }
+
+    private List<SAMRecord> convertToSAMRecords(final AlignedContig alignment, final SAMFileHeader header, final String referenceContig, final int contigStart, final String idPrefix, final String hpTagValue, final double hpQualTagValue, final AlignedContigScore referenceScore, final AlignedContigScore alternativeScore, final int variantStart) {
+        final List<SAMRecord> result = new ArrayList<>(alignment.alignmentIntervals.size());
+        result.add(alignment.alignmentIntervals.get(0).convertToSAMRecord(header, alignment, false));
+        for (int i = 1; i < alignment.alignmentIntervals.size(); i++) {
+            result.add(alignment.alignmentIntervals.get(i).convertToSAMRecord(header, alignment, true));
+        }
+        for (final SAMRecord record : result) {
+            record.setReadName(idPrefix + ":" + alignment.contigName);
+            record.setReferenceName(referenceContig);
+            record.setAlignmentStart(record.getAlignmentStart() + contigStart - 1);
+            record.setAttribute(SAMTag.RG.name(), "CTG");
+            record.setAttribute("HP", hpTagValue);
+            record.setAttribute("HQ", "" + hpQualTagValue);
+            record.setAttribute("RS", "" + referenceScore);
+            record.setAttribute("XS", "" + alternativeScore);
+            record.setAttribute("VC", "" + referenceContig + ":" + variantStart);
+        }
+        final List<String> saTagValues = result.stream()
+                .map(record ->
+                    Utils.join(",", record.getReferenceName(), record.getAlignmentStart(), record.getReadNegativeStrandFlag() ? "+" : "-", record.getCigarString(), record.getMappingQuality(), "" + record.getAttribute(SAMTag.NM.name()))
+                )
+                .collect(Collectors.toList());
+        if (result.size() > 1) {
+            for (int i = 0; i < result.size(); i++) {
+                final int idx = i;
+                result.get(i).setAttribute(SAMTag.SA.name(),
+                        IntStream.range(0, result.size())
+                        .filter(ii -> ii != idx)
+                        .mapToObj(saTagValues::get)
+                        .collect(Collectors.joining(";")) + ";");
+            }
+        }
+        return result;
     }
 
 
