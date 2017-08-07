@@ -139,7 +139,7 @@ public class StructuralVariantContext extends VariantContext {
         final int rightPaddingSize = referenceBases.getInterval().getEnd() - getStart();
         System.arraycopy(referenceBaseBytes, 0, resultBases, 0, leftPaddingSize);
         System.arraycopy(insertedSequence, 0, resultBases, leftPaddingSize, insertedSequence.length);
-        System.arraycopy(referenceBaseBytes, rightPaddingSize, resultBases, leftPaddingSize + insertedSequence.length, rightPaddingSize);
+        System.arraycopy(referenceBaseBytes, leftPaddingSize    , resultBases, leftPaddingSize + insertedSequence.length, rightPaddingSize);
         final Cigar cigar = new Cigar(Arrays.asList(new CigarElement(leftPaddingSize, CigarOperator.M),
                 new CigarElement(insertedSequence.length, CigarOperator.I),
                 new CigarElement(rightPaddingSize, CigarOperator.M)));
