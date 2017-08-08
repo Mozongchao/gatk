@@ -708,15 +708,15 @@ public final class AlignmentUtils {
         if ( doNotThrowExceptionForMultipleIndels )
             return cigar;
 
-        throw new UnsupportedOperationException("attempting to left alignPairs a CIGAR that has more than 1 indel in its alignment but this functionality has not been implemented yet");
+        throw new UnsupportedOperationException("attempting to left align a CIGAR that has more than 1 indel in its alignment but this functionality has not been implemented yet");
     }
 
     private static void ensureLeftAlignmentHasGoodArguments(final Cigar cigar, final byte[] refSeq, final byte[] readSeq, final int refIndex, final int readIndex) {
         Utils.nonNull( cigar );
         Utils.nonNull( refSeq );
         Utils.nonNull( readSeq );
-        if ( refIndex < 0 ) throw new IllegalArgumentException("attempting to left alignPairs with a reference index less than 0");
-        if ( readIndex < 0 ) throw new IllegalArgumentException("attempting to left alignPairs with a read index less than 0");
+        if ( refIndex < 0 ) throw new IllegalArgumentException("attempting to left align with a reference index less than 0");
+        if ( readIndex < 0 ) throw new IllegalArgumentException("attempting to left align with a read index less than 0");
     }
 
     /**
@@ -757,14 +757,14 @@ public final class AlignmentUtils {
             if (ce.getOperator() == CigarOperator.D || ce.getOperator() == CigarOperator.I) {
                 // if there is more than 1 indel, exception out
                 if (indexOfIndel != -1)
-                    throw new IllegalArgumentException("attempting to left alignPairs a CIGAR that has more than 1 indel in its alignment");
+                    throw new IllegalArgumentException("attempting to left align a CIGAR that has more than 1 indel in its alignment");
                 indexOfIndel = i;
             }
         }
 
         // if there is no indel, exception out
         if ( indexOfIndel == -1 )
-            throw new IllegalArgumentException("attempting to left alignPairs a CIGAR that has no indels in its alignment");
+            throw new IllegalArgumentException("attempting to left align a CIGAR that has no indels in its alignment");
         // if the alignment starts with an insertion (so that there is no place on the read to move that insertion further left), we are done
         if ( indexOfIndel == 0 )
             return cigar;
