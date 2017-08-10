@@ -4,6 +4,8 @@ import com.esotericsoftware.kryo.DefaultSerializer;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
+import org.broadinstitute.hellbender.tools.spark.sv.utils.SVInterval;
+import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 
 import java.util.ArrayList;
@@ -29,7 +31,7 @@ public final class AlignedContig {
         this.contigName = contigName;
         this.contigSequence = contigSequence;
         this.alignmentIntervals = Utils.stream(alignmentIntervals)
-                .sorted(Comparator.comparing(a -> a.startInAssembledContig)).collect(Collectors.toList());
+                .sorted(sortAlignments()).collect(Collectors.toList());
     }
 
     AlignedContig(final Kryo kryo, final Input input) {
@@ -49,6 +51,12 @@ public final class AlignedContig {
         }
     }
 
+    public static Comparator<AlignmentInterval> sortAlignments() {
+        Comparator<AlignmentInterval> comparePos = (AlignmentInterval a1, AlignmentInterval a2) -> Integer.compare(a1.startInAssembledContig, a2.startInAssembledContig);
+        Comparator<AlignmentInterval> compareRefTig = (AlignmentInterval a1, AlignmentInterval a2) -> a1.referenceSpan.getContig().compareTo(a2.referenceSpan.getContig());
+        return comparePos.thenComparing(compareRefTig);
+    }
+    
     void serialize(final Kryo kryo, final Output output) {
 
         output.writeString(contigName);
