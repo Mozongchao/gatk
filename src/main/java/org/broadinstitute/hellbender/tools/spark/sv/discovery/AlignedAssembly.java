@@ -8,8 +8,10 @@ import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.*;
 import htsjdk.samtools.util.CigarUtil;
 import htsjdk.samtools.util.SequenceUtil;
+import htsjdk.tribble.annotation.Strand;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.tools.spark.sv.SVConstants;
+import org.broadinstitute.hellbender.tools.spark.sv.utils.SVFastqUtils;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.bwa.BwaMemAligner;
@@ -48,6 +50,27 @@ public final class AlignedAssembly {
         public final int mismatches;
         public final int alignmentScore;
 
+        /**
+         * Compose an alignment interval instance from a SAM supplementary alignment formatted string.
+         * <p>
+         *     The input string format is:
+         *     <pre>
+         *         chr-name,start,strand,cigar,mq,nm,as
+         *     </pre>
+         *     where mq (mapping-quality), nm (number of mismatches) and as (alignment score) might be absent. The strand
+         *     is symbolized as '+' for the forward-strand and '-' for the reverse-strand.
+         *     <p>Examples:</p>
+         *     <pre>
+         *         chr10,1241241,+,10S1313M45I14M100H,30,5,66
+         *         chr10,1241241,+,10S1313M45I14M100H,30,5
+         *         chr10,1241241,+,10S1313M45I14M100H,30
+         *         chr10,1241241,+,10S1313M45I14M100H
+         *     </pre>
+         * </p>
+         * @param str the input string.
+         * @throws IllegalArgumentException if {@code str} is {@code null} or it does not look like a valid
+         *   SA string.
+         */
         public AlignmentInterval(final String str) {
             Utils.nonNull(str, "input str cannot be null");
             final String[] parts = str.replaceAll(";$", "").split(",");
@@ -56,8 +79,17 @@ public final class AlignedAssembly {
             }
             final String referenceContig = parts[0];
             final int start = Integer.parseInt(parts[1]);
-            final boolean forwardStrand = parts[2].equals("+");
-            final Cigar originalCigar = TextCigarCodec.decode(parts[3]);
+            final Strand strand = Strand.toStrand(parts[2]);
+            if (strand == Strand.NONE) {
+                throw new IllegalArgumentException("the input strand cannot be " + Strand.NONE);
+            }
+            final boolean forwardStrand = strand == Strand.POSITIVE;
+            final Cigar originalCigar;
+            try {
+                originalCigar = TextCigarCodec.decode(parts[3]);
+            } catch (final RuntimeException ex) {
+                throw new IllegalArgumentException("bad formatted cigar " + parts[3]);
+            }
             final Cigar cigar = forwardStrand ? originalCigar : CigarUtils.invertCigar(originalCigar);
             final int mappingQuality = parts.length >= 5 ? Integer.parseInt(parts[4]) : 0;
             final int mismatches = parts.length >= 6 ? Integer.parseInt(parts[5]) : -1;
@@ -76,7 +108,6 @@ public final class AlignedAssembly {
 
         @VisibleForTesting
         public AlignmentInterval(final SAMRecord samRecord) {
-
             final boolean isMappedReverse = samRecord.getReadNegativeStrandFlag();
             this.referenceInterval = new SimpleInterval(samRecord);
             this.startInAssembledContig = getAlignmentStartInOriginalContig(samRecord);
@@ -90,6 +121,10 @@ public final class AlignedAssembly {
             this.alignmentScore = Optional.of(samRecord.getIntegerAttribute(SAMTag.AS.name())).orElse(MISSING_AS);
         }
 
+        /**
+         * Construct an alignment interval that reflects on the mapping properties of a {@link GATKRead} instance.
+         * @param read
+         */
         public AlignmentInterval(final GATKRead read) {
             final boolean isMappedReverse = read.isReverseStrand();
             this.referenceInterval = new SimpleInterval(read);
@@ -105,23 +140,12 @@ public final class AlignedAssembly {
 
         @VisibleForTesting
         public AlignmentInterval(final BwaMemAlignment alignment, final List<String> refNames, final int unclippedContigLength) {
-            this(Utils.nonNull(alignment, "the input alignment cannot be null"), refNames::get, unclippedContigLength);
-        }
-
-        public AlignmentInterval(final BwaMemAlignment alignment, final SAMSequenceDictionary dictionary, final int unclippsedContigLength) {
-            this(Utils.nonNull(alignment, "the input alignment cannot be null"), i -> {
-
-                if (dictionary == null) { throw new IllegalArgumentException("bad dictionary"); }
-                final SAMSequenceRecord sequence = dictionary.getSequence(i);
-                if (sequence == null) {
-                    throw new IllegalStateException("alignment index " + alignment.getRefId() + " out of bounds " + dictionary.getSequences().size());
-                }
-                return sequence.getSequenceName();
-            }, unclippsedContigLength);
-        }
-
-        public AlignmentInterval(final BwaMemAlignment alignment, final IntFunction<String> refNames, final int unclippedContigLength) {
-            this.referenceInterval = new SimpleInterval(refNames.apply(alignment.getRefId()), alignment.getRefStart()+1, alignment.getRefEnd()); // +1 because the BwaMemAlignment class has 0-based coordinate system
+            Utils.nonNull(alignment);
+            if (alignment.getRefId() < 0) {
+                throw new IllegalArgumentException("the input alignment must be mapped");
+            }
+            Utils.nonNull(refNames);
+            this.referenceInterval = new SimpleInterval(refNames.get(alignment.getRefId()), alignment.getRefStart()+1, alignment.getRefEnd()); // +1 because the BwaMemAlignment class has 0-based coordinate system
             this.forwardStrand = (alignment.getSamFlag()& SAMFlag.READ_REVERSE_STRAND.intValue())==0;
             this.cigarAlong5to3DirectionOfContig = forwardStrand ? TextCigarCodec.decode(alignment.getCigar()) : CigarUtils.invertCigar(TextCigarCodec.decode(alignment.getCigar()));
             Utils.validateArg(cigarAlong5to3DirectionOfContig.getReadLength() + SVVariantDiscoveryUtils.getTotalHardClipping(cigarAlong5to3DirectionOfContig)

@@ -27,7 +27,6 @@ public final class AlignedContig {
     public final String contigName;
     public final byte[] contigSequence;
     public final List<AlignmentInterval> alignmentIntervals;
-    public final int definedContigSequenceStart;
 
     public AlignedContig(final String contigName, final byte[] contigSequence, final List<AlignmentInterval> alignmentIntervals) {
         this (contigName, contigSequence, alignmentIntervals, null);
@@ -39,7 +38,6 @@ public final class AlignedContig {
         this.alignmentIntervals = Utils.stream(alignmentIntervals)
                 .sorted(Comparator.comparing(a -> a.startInAssembledContig)).collect(Collectors.toList());
         this.score = score == null ? OptionalDouble.empty() : OptionalDouble.of(score);
-        this.definedContigSequenceStart = firstNonZero(contigSequence);
     }
 
     private static int firstNonZero(final byte[] contigSequence) {
@@ -71,7 +69,6 @@ public final class AlignedContig {
         for (int b = 0; b < nBases; ++b) {
             contigSequence[b] = input.readByte();
         }
-        definedContigSequenceStart = firstNonZero(contigSequence);
 
         final int nAlignments = input.readInt();
         alignmentIntervals = new ArrayList<>(nAlignments);
