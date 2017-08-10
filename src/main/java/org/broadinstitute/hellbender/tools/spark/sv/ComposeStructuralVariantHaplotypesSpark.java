@@ -178,11 +178,11 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         return contigsPerVariant;
     }
 
-    private static String variantId(final VariantContext variant) {
+    private static String variantId(final StructuralVariantContext variant) {
         if (variant.getID() != null && !variant.getID().isEmpty()) {
             return variant.getID();
         } else {
-            final int length = Math.abs(variantLength(variant));
+            final int length = variant.getStructuralVariantLength();
             return "var_" + variant.getAlternateAllele(0).getDisplayString() + "_" + length;
         }
     }
@@ -193,26 +193,6 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         } else {
             return Collections.singletonList(new SimpleInterval(contig.getContig(), contig.getStart(), contig.getEnd()));
         }
-    }
-
-    private static List<SimpleInterval> variantsBreakPointIntervals(final VariantContext variant, final int padding, final SAMSequenceDictionary dictionary) {
-        final String contigName = variant.getContig();
-        final int contigLength = dictionary.getSequence(contigName).getSequenceLength();
-        if (variant.getAlternateAllele(0).getDisplayString().equals("<INS>")) {
-            return Collections.singletonList(new SimpleInterval(contigName, Math.max(1, variant.getStart() - padding), Math.min(variant.getStart() + 1 + padding, contigLength)));
-        } else { // must be <DEL>
-            final int length = - variantLength(variant);
-            return Arrays.asList(new SimpleInterval(contigName, Math.max(1, variant.getStart() - padding) , Math.min(contigLength, variant.getStart() + padding)),
-                                 new SimpleInterval(contigName, Math.max(1, variant.getStart() + length - padding), Math.min(contigLength, variant.getStart() + length + padding)));
-        }
-    }
-
-    private static int variantLength(VariantContext variant) {
-        final int length = variant.getAttributeAsInt("SVLEN", 0);
-        if (length == 0) {
-            throw new IllegalStateException("missing SVLEN annotation in " + variant.getContig() + ":" + variant.getStart());
-        }
-        return length;
     }
 
     private <T> JavaPairRDD<SimpleInterval, List<Tuple2<SimpleInterval, T>>> groupInShards(final JavaRDD<T> elements, final org.apache.spark.api.java.function.Function<T, List<SimpleInterval>> intervalsOf,
