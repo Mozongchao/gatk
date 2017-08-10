@@ -8,6 +8,7 @@ import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.*;
 import htsjdk.samtools.util.CigarUtil;
 import htsjdk.samtools.util.SequenceUtil;
+import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.tools.spark.sv.SVConstants;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
@@ -46,6 +47,32 @@ public final class AlignedAssembly {
         public final int mapQual;
         public final int mismatches;
         public final int alignmentScore;
+
+        public AlignmentInterval(final String str) {
+            Utils.nonNull(str, "input str cannot be null");
+            final String[] parts = str.replaceAll(";$", "").split(",");
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("the input SA string at least must contain 4 parts");
+            }
+            final String referenceContig = parts[0];
+            final int start = Integer.parseInt(parts[1]);
+            final boolean forwardStrand = parts[2].equals("+");
+            final Cigar originalCigar = TextCigarCodec.decode(parts[3]);
+            final Cigar cigar = forwardStrand ? originalCigar : CigarUtils.invertCigar(originalCigar);
+            final int mappingQuality = parts.length >= 5 ? Integer.parseInt(parts[4]) : 0;
+            final int mismatches = parts.length >= 6 ? Integer.parseInt(parts[5]) : -1;
+            final int alignmentScore = parts.length >= 7 ? Integer.parseInt(parts[6]) : -1;
+            this.referenceInterval = new SimpleInterval(referenceContig, start,
+                    Math.max(start, CigarUtils.consumedReferenceBases(cigar) + start - 1));
+            this.startInAssembledContig = 1 + CigarUtils.leftHardClippedBases(cigar);
+            this.endInAssembledContig = CigarUtils.calculateReadLength(cigar)
+                    - CigarUtils.leftHardClippedBases(cigar);
+            this.mapQual = mappingQuality;
+            this.mismatches = mismatches;
+            this.alignmentScore = alignmentScore;
+            this.forwardStrand = forwardStrand;
+            this.cigarAlong5to3DirectionOfContig = cigar;
+        }
 
         @VisibleForTesting
         public AlignmentInterval(final SAMRecord samRecord) {
