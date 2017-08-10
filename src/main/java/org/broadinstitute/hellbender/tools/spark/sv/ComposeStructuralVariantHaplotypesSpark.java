@@ -73,7 +73,6 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
     public static final int DEFAULT_PADDING_SIZE = 50;
     public static final int FASTA_BASES_PER_LINE = 60;
 
-
     @Argument(doc = "shard size",
               shortName = SHARD_SIZE_SHORT_NAME,
               fullName = SHARD_SIZE_FULL_NAME,
@@ -89,23 +88,19 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
     @Argument(doc = "input variant file",
               shortName = StandardArgumentDefinitions.VARIANT_SHORT_NAME,
               fullName = StandardArgumentDefinitions.VARIANT_LONG_NAME)
-    private String variantsFileName;
+    private String variantsFileName = null;
 
     @Argument(doc = "aligned contig file",
               fullName = CONTIGS_FILE_FULL_NAME,
               shortName = CONTIGS_FILE_SHORT_NAME
     )
-    private String alignedContigsFileName;
+    private String alignedContigsFileName = null;
 
     @Argument(doc = "output bam file with contigs per variant",
               fullName = StandardArgumentDefinitions.OUTPUT_LONG_NAME,
               shortName = StandardArgumentDefinitions.OUTPUT_SHORT_NAME
     )
-    private String outputFileName;
-
-    @Override
-    protected void onStartup() {
-    }
+    private String outputFileName = null;
 
     @Override
     protected void runTool(final JavaSparkContext ctx) {
@@ -222,16 +217,6 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
             throw new IllegalStateException("missing SVLEN annotation in " + variant.getContig() + ":" + variant.getStart());
         }
         return length;
-    }
-
-    private static SimpleInterval locatableToSimpleInterval(final Locatable loc) {
-        return new SimpleInterval(loc.getContig(), loc.getStart(), loc.getEnd());
-    }
-
-    private static JavaRDD<GATKRead> readsByInterval(final SimpleInterval interval, final ReadsSparkSource alignedContigs, final String alignedContigFileName, final String referenceName) {
-
-        return alignedContigs.getParallelReads(alignedContigFileName,
-                referenceName, Collections.singletonList(interval));
     }
 
     private <T> JavaPairRDD<SimpleInterval, List<Tuple2<SimpleInterval, T>>> groupInShards(final JavaRDD<T> elements, final org.apache.spark.api.java.function.Function<T, List<SimpleInterval>> intervalsOf,
@@ -364,7 +349,9 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
         return result;
     }
 
-
+    /**
+     * Class to represent and calculate the aligned contig score.
+     */
     private static class AlignedContigScore {
         final int totalReversals;
         final int totalIndels;
@@ -584,7 +571,8 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                         final List<SimpleInterval> locations = a.alignmentIntervals.stream().map(ai -> ai.referenceInterval).collect(Collectors.toList());
                         final GATKRead candidate = s.getParallelReads(alignedContigsFileName, referenceArguments.getReferenceFileName(), locations)
                                 .filter(rr -> rr.getName().equals(targetName))
-                                .reduce(((Function2< GATKRead, GATKRead, GATKRead> & Serializable) ComposeStructuralVariantHaplotypesSpark::reduceContigReads));
+                                .filter(rr -> !rr.getCigar().containsOperator(CigarOperator.H))
+                                .first();
                         final AlignedContig result = addAlignment(a, candidate);
                         if (result.contigSequence[0] != 0 && a.contigSequence[result.contigSequence.length - 1] != 0) {
                             logger.warn("Contig " + result.contigName + " " + readAlignmentString(candidate) + " " + candidate.getAttributeAsString("SA") + " gave-up!");
@@ -600,24 +588,6 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
 
     private static String readAlignmentString(final GATKRead r) {
         return r.getContig() + "," + r.getStart() + "," + (r.isReverseStrand() ?  "-" : "+") + "," + r.getCigar() + "," + r.getMappingQuality() + "," + r.getAttributeAsString("NM");
-    }
-
-    private static GATKRead reduceContigReads(final GATKRead read1, final GATKRead read2) {
-        if (read2.isUnmapped() || read2.isSecondaryAlignment()) {
-            return read1;
-        } else if (read1.isUnmapped() || read1.isSecondaryAlignment()) {
-            return read2;
-        } else if (!containsHardclips(read1)) {
-            return read1;
-        } else if (!containsHardclips(read2)) {
-            return read2;
-        } else {
-            return mergeSequences(read1, read2);
-        }
-    }
-
-    private static boolean containsHardclips(final GATKRead read1) {
-        return read1.getCigar().getCigarElements().stream().anyMatch(e -> e.getOperator() == CigarOperator.HARD_CLIP);
     }
 
     private static AlignedContig convertToAlignedContig(final GATKRead read) {
@@ -693,92 +663,6 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                 Stream.concat(a.alignmentIntervals.stream(), b.alignmentIntervals.stream())
                       .sorted(Comparator.comparing(ai -> ai.startInAssembledContig))
                       .collect(Collectors.toList()));
-    }
-
-    private static GATKRead mergeSequences(final GATKRead read1, final GATKRead read2) {
-        final int contigLength = CigarUtils.calculateReadLength(read1.getCigar());
-        final byte[] bases = new byte[contigLength];
-        final MutableInt start = new MutableInt(contigLength);
-        final MutableInt end = new MutableInt(-1);
-        final SATagBuilder saBuilder1 = new SATagBuilder(read1);
-        final SATagBuilder saBuilder2 = new SATagBuilder(read2);
-        saBuilder1.removeTag(read2);
-        saBuilder1.removeTag(read1);
-        mergeSequences(bases, start, end, read1);
-        mergeSequences(bases, start, end, read2);
-        final byte[] mergedBases = Arrays.copyOfRange(bases, start.intValue(), end.intValue());
-        final List<CigarElement> elements = new ArrayList<>();
-        if (start.intValue() > 0) {
-            elements.add(new CigarElement(start.intValue(), CigarOperator.H));
-        }
-        elements.add(new CigarElement(end.intValue() - start.intValue(), CigarOperator.M));
-        if (end.intValue() < contigLength) {
-            elements.add(new CigarElement(contigLength - end.intValue(), CigarOperator.H));
-        }
-        final Cigar mergedCigar = new Cigar(elements);
-
-        final GATKRead result = new ContigMergeGATKRead(read1.getName(), read1.getContig(), read1.getStart(), mergedBases,
-                mergedCigar, Math.max(read1.getMappingQuality(), read2.getMappingQuality()), bases.length, read1.getReadGroup(), read1.isSupplementaryAlignment());
-
-        final SATagBuilder resultSABuilder = new SATagBuilder(result);
-
-        resultSABuilder.addAllTags(saBuilder1);
-        resultSABuilder.addAllTags(saBuilder2);
-        resultSABuilder.setSATag();
-        return result;
-    }
-
-    private static void mergeSequences(final byte[] bases, final MutableInt start, final MutableInt end, final GATKRead read) {
-        final byte[] readBases = read.getBases();
-        Cigar cigar = read.getCigar();
-        if (read.isReverseStrand()) {
-            SequenceUtil.reverseComplement(readBases, 0, readBases.length);
-            cigar = CigarUtils.invertCigar(cigar);
-        }
-        int nextReadBase = 0;
-        int nextBase = 0;
-        int hardClipStart = 0; // unless any leading H found.
-        int hardClipEnd = bases.length; // unless any tailing H found.
-        for (final CigarElement element : cigar) {
-            final CigarOperator operator = element.getOperator();
-            final int length = element.getLength();
-            if (operator == CigarOperator.H) {
-                    if (nextBase == 0) { // hard-clip at the beginning.
-                        hardClipStart = length;
-                    } else { // hard-clip at the end.
-                        hardClipEnd = bases.length - length;
-                    }
-                nextBase += length;
-            } else if (operator.consumesReadBases()) {
-                for (int i = 0; i < length; i++) {
-                    bases[nextBase + i] = mergeBase(bases[nextBase + i], readBases[nextReadBase + i], () -> "mismatching bases");
-                }
-                nextBase += element.getLength();
-                nextReadBase += element.getLength();
-            }
-        }
-        if (hardClipStart < start.intValue()) {
-            start.setValue(hardClipStart);
-        }
-        if (hardClipEnd > end.intValue()) {
-            end.setValue(hardClipEnd);
-        }
-    }
-
-    private static byte mergeQual(final byte a, final byte b) {
-        return (byte) Math.max(a, b);
-    }
-
-    private static byte mergeBase(final byte a, final byte b, final Supplier<String> errorMessage) {
-        if (a == 0) {
-            return b;
-        } else if (b == 0) {
-            return a;
-        } else if (a == b) {
-            return a;
-        } else {
-            throw new IllegalStateException(errorMessage.get());
-        }
     }
 }
 
