@@ -384,7 +384,7 @@ public final class CigarUtils {
      * @return never {@code null}. It might be the same cigar instance if there is not changes to be made.
      */
     public static Cigar hardClip(final Cigar cigar) {
-        return reclip(cigar, true);
+        return softOfHardClip(cigar, true);
     }
 
     /**
@@ -403,7 +403,7 @@ public final class CigarUtils {
      * @return never {@code null}. It might be the same cigar instance if there is not changes to be made.
      */
     public static Cigar softClip(final Cigar cigar) {
-        return reclip(cigar, false);
+        return softOfHardClip(cigar, false);
     }
 
     /**
@@ -419,7 +419,7 @@ public final class CigarUtils {
      * @return the output cigar after the transformation. If no transformation was needed
      *         it might return the input cigar itself.
      */
-    private static Cigar reclip(final Cigar cigar, final boolean hard) {
+    private static Cigar softOfHardClip(final Cigar cigar, final boolean hard) {
         Utils.nonNull(cigar, "the input cigar cannot be null");
         final CigarOperator clipOperator = hard ? CigarOperator.H : CigarOperator.S;
         final List<CigarElement> elements = cigar.getCigarElements();
@@ -539,6 +539,13 @@ public final class CigarUtils {
         return result;
     }
 
+    /**
+     * Returns the number of based hard-clipped to the left/head of the cigar.
+     *
+     * @param cigar the input cigar.
+     * @throws IllegalArgumentException if {@code cigar} is {@code null}.
+     * @return 0 or greater.
+     */
     public static int leftHardClippedBases(final Cigar cigar) {
         Utils.nonNull(cigar, "the input cigar cannot not be null");
         if (cigar.isEmpty()) {
@@ -550,6 +557,16 @@ public final class CigarUtils {
         }
     }
 
+    /**
+     * Returns the number of based hard-clipped to the right/tail of the cigar.
+     * <p>
+     *     In the case of a degenerated cigar that is only composed of hard-clips, those
+     *     are considered left-clipping and this method return 0.
+     * </p>
+     * @param cigar the input cigar.
+     * @throws IllegalArgumentException if {@code cigar} is {@code null}.
+     * @return 0 or greater.
+     */
     public static int rightHardClippedBases(final Cigar cigar) {
         Utils.nonNull(cigar, "the input cigar cannot not be null");
         final List<CigarElement> elements = cigar.getCigarElements();
@@ -563,7 +580,7 @@ public final class CigarUtils {
     }
 
     /**
-     * Total number of bases clipped on the right/tail side of the cigar.
+     * Total number of bases clipped (soft or hard) on the right/tail side of the cigar.
      *
      * <p>
      *     In a degenerated cigar with all clipping elements, these are considered part of the left-clip thus this method

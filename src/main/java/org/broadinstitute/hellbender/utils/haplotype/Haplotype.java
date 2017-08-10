@@ -238,10 +238,7 @@ public final class Haplotype extends Allele {
     }
 
     /**
-     * Converts the haplotype into a {@link SAMRecord}.
-     * <p>This method copies this haplotype attributes to the closes equivalent property in the result read</p>.
-     * <p>For example, the bases in the result reads are the ones in the haplotype, and if the latter is aligned
-     * (i.e. it has a cigar and genomic location) the output read would also acquire those values.</p>
+     * Composes a {@link SAMRecord} that contains the sequence and mapping information in the haplotype.
      *
      * @param header the header for the output sam-record file associated with the returned record.
      * @param name the name of the resulting SAMRecord.
@@ -283,10 +280,12 @@ public final class Haplotype extends Allele {
      * This call is equivalent to {@code {@link #convertToSAMRecord(SAMFileHeader, String, Consumer) convertToSAMRecord(header, name, null)}}.
      * </p>
      * @see #convertToSAMRecord(SAMFileHeader, String, Consumer)
+     *
      * @param header the header for the output sam-record file associated with the returned record.
      * @param name the name of the resulting SAMRecord.
      *
      * @throws IllegalArgumentException if {@code header} or {@code name} are {@code null}.
+     *
      * @return never {@code null}.
      */
     public SAMRecord convertToSAMRecord(final SAMFileHeader header, final String name) {

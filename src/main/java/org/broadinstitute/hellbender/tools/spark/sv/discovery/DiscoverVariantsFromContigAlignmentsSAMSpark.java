@@ -56,9 +56,6 @@ public final class DiscoverVariantsFromContigAlignmentsSAMSpark extends GATKSpar
     private static final long serialVersionUID = 1L;
     private final Logger localLogger = LogManager.getLogger(DiscoverVariantsFromContigAlignmentsSAMSpark.class);
 
-    public static final String ALIGNED_CONTIG_TABLE_SHORT_NAME = "actable";
-    public static final String ALIGNED_CONTIG_TABLE_FULL_NAME = "alignedContigTable";
-
     @ArgumentCollection
     private StructuralVariationDiscoveryArgumentCollection.DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection
             discoverStageArgs
@@ -67,11 +64,6 @@ public final class DiscoverVariantsFromContigAlignmentsSAMSpark extends GATKSpar
     @Argument(doc = "sam file for aligned contigs", shortName = StandardArgumentDefinitions.OUTPUT_SHORT_NAME,
             fullName = StandardArgumentDefinitions.OUTPUT_LONG_NAME)
     private String vcfOutputFileName;
-
-    @Argument(doc = "file with all alligned contig locations",
-              shortName = "actable",
-              fullName = "alignedContigTable")
-    private String alignedContigTableFileName = null;
 
     @Override
     public boolean requiresReference() {
