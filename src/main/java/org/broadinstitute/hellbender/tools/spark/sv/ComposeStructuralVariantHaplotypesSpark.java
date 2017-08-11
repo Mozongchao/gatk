@@ -47,9 +47,13 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
- * Created by valentin on 7/14/17.
+ * Composes a bam file with assembled contigs conveniently realigned and annotated for the SV indel genotyping.
  */
-@CommandLineProgramProperties(summary = "test", oneLineSummary = "test",
+@CommandLineProgramProperties(
+        summary = "composes contigs file for genotyping",
+        oneLineSummary = "composes contigs file for genotyping",
+        usageExample = "--variant ins_and_dels.vcf --contigs assemblies.bam --reference my-ref.fa " +
+                "--shardSize 10000 --paddingSize 300 --output genotyping-contigs.bam",
         programGroup = StructuralVariationSparkProgramGroup.class )
 @BetaFeature
 public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
@@ -199,8 +203,6 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                                                                   final Broadcast<IntervalsSkipList<SimpleInterval>> shards) {
         final PairFlatMapFunction<T, SimpleInterval, Tuple2<SimpleInterval, T>> flatMapIntervals =
                 t -> intervalsOf.call(t).stream().map(i -> new Tuple2<>(i, new Tuple2<>(i,t))).iterator();
-
-        JavaPairRDD<Integer, Integer> x;
 
         return elements
                 .flatMapToPair(flatMapIntervals)
