@@ -290,11 +290,18 @@ public final class BucketUtils {
     public static long dirSize(String path) {
         try {
             // GCS case (would work with local too)
+            logger.info("tw: dirSize " + path);
             if (isCloudStorageUrl(path)) {
                 java.nio.file.Path p = getPathOnGcs(path);
+                logger.info("tw: p " + p);
                 return Files.list(p).mapToLong(
                     q -> {
                         try {
+                            logger.info("tw: q " + q);
+                            logger.info("tw: Files.isRegularFile(q) " + Files.isRegularFile(q));
+                            if (Files.isRegularFile(q)) {
+                                logger.info("tw: Files.size(q) " + Files.size(q));
+                            }
                             return (Files.isRegularFile(q) ? Files.size(q) : 0);
                         } catch (IOException e) {
                             throw new RuntimeIOException(e);
