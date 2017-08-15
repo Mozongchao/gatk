@@ -29,7 +29,7 @@ class AnnotatedVariantProducer implements Serializable {
     /**
      * Produces a VC from a {@link NovelAdjacencyReferenceLocations}
      * (consensus among different assemblies if they all point to the same breakpoint).
-     * @param refLoc                            POS field of the VC
+     * @param refLoc                            corresponds to POS field of the returned VC, hence must be a point location.
      * @param end                               END of the VC, assumed to be < 0 if for BND formatted variant
      * @param breakpointComplications           complications associated with this breakpoint
      * @param inferredType                      inferred type of variant
@@ -62,7 +62,9 @@ class AnnotatedVariantProducer implements Serializable {
         // evidence used for producing the novel adjacency
         getEvidenceRelatedAnnotations(contigAlignments).forEach(vcBuilder::attribute);
 
-        return end > 0 ? vcBuilder.attribute(VCFConstants.END_KEY, applicableEnd).make() : vcBuilder.make();
+        if (end > 0)
+            vcBuilder.attribute(VCFConstants.END_KEY, applicableEnd);
+        return vcBuilder.make();
     }
 
     // TODO: 12/13/16 again ignoring translocation

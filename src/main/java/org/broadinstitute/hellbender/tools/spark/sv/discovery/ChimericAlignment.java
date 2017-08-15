@@ -255,11 +255,9 @@ public class ChimericAlignment {
         }
     }
 
-    public static boolean isNotSimpleTranslocation(final ChimericAlignment chimericAlignment) {
-        return isNotSimpleTranslocation(chimericAlignment.regionWithLowerCoordOnContig,
-                chimericAlignment.regionWithHigherCoordOnContig, chimericAlignment.strandSwitch,
-                involvesRefPositionSwitch(chimericAlignment.regionWithLowerCoordOnContig,
-                        chimericAlignment.regionWithHigherCoordOnContig));
+    public boolean isNotSimpleTranslocation() {
+        return isNotSimpleTranslocation(regionWithLowerCoordOnContig, regionWithHigherCoordOnContig, strandSwitch,
+                                        involvesRefPositionSwitch(regionWithLowerCoordOnContig, regionWithHigherCoordOnContig));
     }
 
     Tuple2<SimpleInterval, SimpleInterval> getCoordSortedReferenceSpans() {
