@@ -12,7 +12,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.OptionalDouble;
-import org.broadinstitute.hellbender.tools.spark.sv.discovery.AlignedAssembly.AlignmentInterval;
 
 /**
  * Locally assembled contig:

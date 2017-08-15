@@ -7,6 +7,7 @@ import htsjdk.variant.vcf.VCFConstants;
 import org.broadinstitute.hellbender.engine.datasources.ReferenceMultiSource;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.exceptions.UserException;
+import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFHeaderLines;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
@@ -68,7 +69,7 @@ public class StructuralVariantContext extends VariantContext {
      * This end position is determined with this priority:
      * <ul>
      *     <li>the value of the annotation {@value VCFConstants#END_KEY} if present, otherwise</li>
-     *     <li>the value that results from applying the length annotated under {@value  GATKSVVCFHeaderLines#SVLEN} based on the structural type if such annoation is present, otherwise</li>
+     *     <li>the value that results from applying the length annotated under {@value  GATKSVVCFConstants#SVLEN} based on the structural type if such annoation is present, otherwise</li>
      *     <li>the variant context start position + the length of the reference allele - 1.</li>
      * </ul>
      * @return whatever is returned by {@link #getStart()} or greater.
@@ -92,16 +93,16 @@ public class StructuralVariantContext extends VariantContext {
      * <p>
      *     The list returned is an immutable list.
      * </p>
-     * @throws IllegalStateException if the {@link GATKSVVCFHeaderLines#CONTIG_NAMES} annotation contains
+     * @throws IllegalStateException if the {@link GATKSVVCFConstants#CONTIG_NAMES} annotation contains
      * undefined contig names (.)
      *
      * @return never {@code null}, an empty list if no structural variant is specified.
      */
     public List<String> getContigNames() {
-        if (!hasAttribute(GATKSVVCFHeaderLines.CONTIG_NAMES)) {
+        if (!hasAttribute(GATKSVVCFConstants.CONTIG_NAMES)) {
             return Collections.emptyList();
         } else {
-            final List<String> contigNames = getAttributeAsStringList(GATKSVVCFHeaderLines.CONTIG_NAMES, null);
+            final List<String> contigNames = getAttributeAsStringList(GATKSVVCFConstants.CONTIG_NAMES, null);
             if (contigNames.contains(null)) {
                 throw new IllegalStateException("the contig names annotation contains undefined values");
             }
@@ -203,13 +204,13 @@ public class StructuralVariantContext extends VariantContext {
     /**
      * Returns the inserted sequence.
      * <p>
-     *     Currently this method relies on the annotation {@value GATKSVVCFHeaderLines#INSERTED_SEQUENCE}.
+     *     Currently this method relies on the annotation {@value GATKSVVCFConstants#INSERTED_SEQUENCE}.
      * </p>
      * @return {@code null} if there is no inserted sequence.
      */
     public byte[] getInsertedSequence() {
-        if (hasAttribute(GATKSVVCFHeaderLines.INSERTED_SEQUENCE)) {
-            final String asString = getAttributeAsString(GATKSVVCFHeaderLines.INSERTED_SEQUENCE, null);
+        if (hasAttribute(GATKSVVCFConstants.INSERTED_SEQUENCE)) {
+            final String asString = getAttributeAsString(GATKSVVCFConstants.INSERTED_SEQUENCE, null);
             if (asString == null) {
                 return null;
             } else {
@@ -230,8 +231,8 @@ public class StructuralVariantContext extends VariantContext {
      */
     public int getStructuralVariantLength() {
         if (length >= 0) {
-            if (hasAttribute(GATKSVVCFHeaderLines.SVLEN)) {
-                length = Math.abs(getAttributeAsInt(GATKSVVCFHeaderLines.SVLEN, 0));
+            if (hasAttribute(GATKSVVCFConstants.SVLEN)) {
+                length = Math.abs(getAttributeAsInt(GATKSVVCFConstants.SVLEN, 0));
             }
         }
         return length;

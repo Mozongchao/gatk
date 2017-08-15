@@ -22,7 +22,7 @@ import org.broadinstitute.hellbender.engine.spark.datasources.ReadsSparkSource;
 import org.broadinstitute.hellbender.engine.spark.datasources.VariantsSparkSource;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.tools.spark.bwa.BwaSparkEngine;
-import org.broadinstitute.hellbender.tools.spark.sv.discovery.AlignedAssembly.AlignmentInterval;
+import org.broadinstitute.hellbender.tools.spark.sv.discovery.AlignmentInterval;
 import org.broadinstitute.hellbender.tools.spark.sv.discovery.AlignedContig;
 import org.broadinstitute.hellbender.utils.IntervalUtils;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
@@ -426,9 +426,9 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                 } else {
                     final AlignmentInterval left = ai.forwardStrand ? intervals.get(i - 1) : ai;
                     final AlignmentInterval right = ai.forwardStrand ? ai : intervals.get(i - 1);
-                    if (left.referenceInterval.getEnd() < right.referenceInterval.getStart()) {
+                    if (left.referenceSpan.getEnd() < right.referenceSpan.getStart()) {
                         totalIndels++;
-                        totalIndelLength += ai.referenceInterval.getStart() - intervals.get(i - 1).referenceInterval.getEnd();
+                        totalIndelLength += ai.referenceSpan.getStart() - intervals.get(i - 1).referenceSpan.getEnd();
                     }
                     if (left.endInAssembledContig < right.startInAssembledContig) {
                         totalIndels++;
@@ -601,7 +601,7 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
                         return a;
                     } else {
                         final String targetName = a.contigName;
-                        final List<SimpleInterval> locations = a.alignmentIntervals.stream().map(ai -> ai.referenceInterval).collect(Collectors.toList());
+                        final List<SimpleInterval> locations = a.alignmentIntervals.stream().map(ai -> ai.referenceSpan).collect(Collectors.toList());
                         final GATKRead candidate = s.getParallelReads(alignedContigsFileName, referenceArguments.getReferenceFileName(), locations)
                                 .filter(rr -> rr.getName().equals(targetName))
                                 .filter(rr -> !rr.getCigar().containsOperator(CigarOperator.H))
