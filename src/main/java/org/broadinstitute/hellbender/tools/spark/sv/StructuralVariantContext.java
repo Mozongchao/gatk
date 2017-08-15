@@ -230,7 +230,7 @@ public class StructuralVariantContext extends VariantContext {
      * @return -1 if there is no SVLEN annotation, 0 or greater otherwise.
      */
     public int getStructuralVariantLength() {
-        if (length >= 0) {
+        if (length < 0) {
             if (hasAttribute(GATKSVVCFConstants.SVLEN)) {
                 length = Math.abs(getAttributeAsInt(GATKSVVCFConstants.SVLEN, 0));
             }
