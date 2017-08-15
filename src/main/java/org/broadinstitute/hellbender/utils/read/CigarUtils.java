@@ -491,7 +491,7 @@ public final class CigarUtils {
      * @throws IllegalArgumentException if the input {@code cigar} is {@code null}.
      * @return 0 or greater.
      */
-    public static int calculateReadLength(final Cigar cigar) {
+    public static int readLength(final Cigar cigar) {
         Utils.nonNull(cigar, "the input cigar cannot be null");
         return cigar.getCigarElements().stream()
                 .filter(ce -> {
@@ -508,7 +508,7 @@ public final class CigarUtils {
      * @throws IllegalArgumentException if {@code cigar} is {@code null}.
      * @return 0 or greater.
      */
-    public static int consumedReferenceBases(final Cigar cigar) {
+    public static int referenceBasesConsumed(final Cigar cigar) {
         Utils.nonNull(cigar, "the input cigar cannot be null");
         return cigar.getCigarElements().stream()
                 .filter(ce -> ce.getOperator().consumesReferenceBases())
@@ -598,7 +598,7 @@ public final class CigarUtils {
             return 0;        // two elements before right clipping can be larger than 0.
         } else {
             int result = 0;
-            final ListIterator<CigarElement> it = elements.listIterator(elements.size() - 1);
+            final ListIterator<CigarElement> it = elements.listIterator(elements.size());
             while (it.hasPrevious()) {
                 final CigarElement e = it.previous();
                 if (e.getOperator().isClipping()) {

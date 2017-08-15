@@ -6,21 +6,16 @@ import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.*;
-import htsjdk.samtools.util.CigarUtil;
 import htsjdk.samtools.util.SequenceUtil;
 import htsjdk.tribble.annotation.Strand;
-import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.tools.spark.sv.SVConstants;
-import org.broadinstitute.hellbender.tools.spark.sv.utils.SVFastqUtils;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
-import org.broadinstitute.hellbender.utils.bwa.BwaMemAligner;
 import org.broadinstitute.hellbender.utils.bwa.BwaMemAlignment;
 import org.broadinstitute.hellbender.utils.read.CigarUtils;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
 
 import java.util.*;
-import java.util.function.IntFunction;
 
 /**
  * Holding necessary information about a local assembly for use in SV discovery.
@@ -95,9 +90,9 @@ public final class AlignedAssembly {
             final int mismatches = parts.length >= 6 ? Integer.parseInt(parts[5]) : -1;
             final int alignmentScore = parts.length >= 7 ? Integer.parseInt(parts[6]) : -1;
             this.referenceInterval = new SimpleInterval(referenceContig, start,
-                    Math.max(start, CigarUtils.consumedReferenceBases(cigar) + start - 1));
+                    Math.max(start, CigarUtils.referenceBasesConsumed(cigar) + start - 1));
             this.startInAssembledContig = 1 + CigarUtils.leftHardClippedBases(cigar);
-            this.endInAssembledContig = CigarUtils.calculateReadLength(cigar)
+            this.endInAssembledContig = CigarUtils.readLength(cigar)
                     - CigarUtils.leftHardClippedBases(cigar);
             this.mapQual = mappingQuality;
             this.mismatches = mismatches;
@@ -161,6 +156,12 @@ public final class AlignedAssembly {
                 this.startInAssembledContig = unclippedContigLength - alignment.getSeqEnd() + 1;
                 this.endInAssembledContig = unclippedContigLength - alignment.getSeqStart();
             }
+        }
+
+
+        public AlignmentInterval(final SimpleInterval referenceInterval, final int startInAssembledContig, final int endInAssembledContig,
+                                 final Cigar cigarAlong5to3DirectionOfContig, final boolean forwardStrand, final int mapQual, final int mismatches) {
+            this(referenceInterval, startInAssembledContig, endInAssembledContig, cigarAlong5to3DirectionOfContig, forwardStrand, mapQual, mismatches, 0);
         }
 
         public AlignmentInterval(final SimpleInterval referenceInterval, final int startInAssembledContig, final int endInAssembledContig,

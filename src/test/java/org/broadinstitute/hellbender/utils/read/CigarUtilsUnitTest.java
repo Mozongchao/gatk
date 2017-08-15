@@ -1,6 +1,8 @@
 package org.broadinstitute.hellbender.utils.read;
 
 import htsjdk.samtools.Cigar;
+import htsjdk.samtools.CigarElement;
+import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.TextCigarCodec;
 import org.broadinstitute.hellbender.utils.test.ReadClipperTestUtils;
 import org.testng.Assert;
@@ -8,10 +10,8 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.lang.reflect.Method;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public final class CigarUtilsUnitTest {
 
@@ -336,5 +336,159 @@ public final class CigarUtilsUnitTest {
         final Cigar actualCigar = CigarUtils.calculateCigar(s1.getBytes(), s2.getBytes());
         final Cigar decode = TextCigarCodec.decode(expectedCigar);
         Assert.assertEquals(actualCigar, decode);
+    }
+
+    /**
+     * This test is just to check that {@link #randomValidCigars()} dataProvider is actually
+     * producing only valid cigars.
+     * @param cigar
+     */
+    @Test(dataProvider = "randomValidCigars")
+    public void testRadomValidCigarsDataProvider(final Cigar cigar) {
+        Assert.assertNull(cigar.isValid("annon", 0));
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testLeftClip(final Cigar cigar) {
+        final int actual = CigarUtils.leftClippedBases(cigar);
+        int expected = 0;
+        for (final CigarElement element : cigar.getCigarElements()) {
+            if (!element.getOperator().isClipping()) {
+                break;
+            }
+            expected += element.getLength();
+        }
+        Assert.assertEquals(actual, expected);
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testLeftHardClip(final Cigar cigar) {
+        final int actual = CigarUtils.leftHardClippedBases(cigar);
+        int expected = 0;
+        for (final CigarElement element : cigar.getCigarElements()) {
+            if (!element.getOperator().isClipping()) {
+                break;
+            }
+            expected += element.getOperator() == CigarOperator.HARD_CLIP ? element.getLength(): 0;
+        }
+        Assert.assertEquals(actual, expected);
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testReferenceBasesConsumed(final Cigar cigar) {
+        final int actual = CigarUtils.referenceBasesConsumed(cigar);
+        final int expected = cigar.getCigarElements().stream().filter(ce -> ce.getOperator().consumesReferenceBases())
+                .mapToInt(CigarElement::getLength).sum();
+        Assert.assertEquals(actual, expected);
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testRightClip(final Cigar cigar) {
+        final int actual = CigarUtils.rightClippedBases(cigar);
+        int expected = 0;
+        for (final CigarElement element : CigarUtils.invertCigar(cigar).getCigarElements()) {
+            if (!element.getOperator().isClipping()) {
+                break;
+            }
+            expected += element.getLength();
+        }
+        Assert.assertEquals(actual, expected);
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testRightHardClip(final Cigar cigar) {
+        final int actual = CigarUtils.rightHardClippedBases(cigar);
+        int expected = 0;
+        for (final CigarElement element : CigarUtils.invertCigar(cigar).getCigarElements()) {
+            if (!element.getOperator().isClipping()) {
+                break;
+            }
+            expected += element.getOperator() == CigarOperator.HARD_CLIP ? element.getLength(): 0;
+        }
+        Assert.assertEquals(actual, expected);
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testSoftClip(final Cigar cigar) {
+        final Cigar actual = CigarUtils.softClip(cigar);
+        final Cigar expected = CigarUtils.combineAdjacentCigarElements(new Cigar(
+                cigar.getCigarElements().stream()
+                        .map(ce -> ce.getOperator().isClipping() ? new CigarElement(ce.getLength(), CigarOperator.SOFT_CLIP) : ce)
+                        .collect(Collectors.toList())
+        ));
+
+        Assert.assertEquals(actual, expected);
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testReadLength(final Cigar cigar) {
+        final int actual = CigarUtils.readLength(cigar);
+        final int expected = cigar.getCigarElements().stream()
+                .filter(ce -> ce.getOperator().consumesReadBases() || ce.getOperator().isClipping())
+                .mapToInt(CigarElement::getLength).sum();
+        Assert.assertEquals(actual, expected);
+    }
+
+    @Test(dataProvider = "randomValidCigars")
+    public void testHardClip(final Cigar cigar) {
+        final Cigar actual = CigarUtils.hardClip(cigar);
+        final Cigar expected = CigarUtils.combineAdjacentCigarElements(new Cigar(
+                cigar.getCigarElements().stream()
+                        .map(ce -> ce.getOperator().isClipping() ? new CigarElement(ce.getLength(), CigarOperator.HARD_CLIP) : ce)
+                        .collect(Collectors.toList())
+        ));
+        Assert.assertEquals(actual, expected);
+    }
+
+    @DataProvider(name = "randomValidCigars")
+    public Object[][] randomValidCigars() {
+        final Random rdn = new Random(13);
+        final List<Object[]> result = new ArrayList<>();
+        result.add(new Object[] {new Cigar(new ArrayList<>())});
+        for (int i = 0; i < 1_000; i++) {
+            final boolean leftClipping = rdn.nextBoolean();
+            final boolean rightClipping = rdn.nextBoolean();
+            final boolean leftHardClipping = leftClipping && rdn.nextBoolean();
+            final boolean rightHardClipping = rightClipping && rdn.nextBoolean();
+            final int leftClippingLength = leftClipping ? rdn.nextInt(100) + 1 : 0;
+            final int rightClippingLength = rightClipping ? rdn.nextInt(100) + 1: 0;
+            final int leftHardClippingLength = leftHardClipping ? (rdn.nextBoolean() ? leftClippingLength : rdn.nextInt(leftClippingLength) + 1) : 0;
+            final int rightHardClippingLength = rightHardClipping ? (rdn.nextBoolean() ? rightClippingLength : rdn.nextInt(rightClippingLength + 1) ): 0;
+            final int leftSoftClippingLength = leftClippingLength - leftHardClippingLength;
+            final int rightSoftClippingLength = rightClippingLength - rightHardClippingLength;
+            final List<CigarElement> coreElements = new ArrayList<>();
+            final int coreElementCount = rdn.nextInt(10);
+            coreElements.add(new CigarElement(rdn.nextInt(100) + 1, CigarOperator.M));
+            for (int j = 0; j < coreElementCount; j++) {
+                final CigarOperator op = randomCoreOperator(rdn);
+                coreElements.add(new CigarElement(rdn.nextInt(100) + 1, op));
+            }
+            Collections.shuffle(coreElements, rdn);
+            if (!coreElements.get(0).getOperator().isAlignment()) {
+                coreElements.add(0, new CigarElement(rdn.nextInt(100) + 1, CigarOperator.M));
+            }
+            if (!coreElements.get(coreElements.size() - 1).getOperator().isAlignment()) {
+                coreElements.add(new CigarElement(rdn.nextInt(100) + 1, CigarOperator.M));
+            }
+            final List<CigarElement> elements = new ArrayList<>();
+            if (leftHardClippingLength > 0) elements.add(new CigarElement(leftHardClippingLength, CigarOperator.H));
+            if (leftSoftClippingLength > 0) elements.add(new CigarElement(leftSoftClippingLength, CigarOperator.S));
+            elements.addAll(coreElements);
+            if (rightSoftClippingLength > 0) elements.add(new CigarElement(rightSoftClippingLength, CigarOperator.S));
+            if (rightHardClippingLength > 0) elements.add(new CigarElement(rightHardClippingLength, CigarOperator.H));
+            final Cigar cigar = CigarUtils.combineAdjacentCigarElements(new Cigar(elements));
+            result.add(new Object[] { cigar });
+        }
+        return result.toArray(new Object[result.size()][]);
+    }
+
+    private CigarOperator randomCoreOperator(final Random rdn) {
+        while (true) {
+            final int idx = rdn.nextInt(CigarOperator.values().length);
+            final CigarOperator op = CigarOperator.values()[idx];
+            if (!op.isClipping()) {
+                return op;
+            }
+        }
     }
 }
